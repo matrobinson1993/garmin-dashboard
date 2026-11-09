@@ -1,0 +1,489 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tab Listener</title>
+<style>
+  :root{
+    --bg:#14110f; --panel:#1e1a17; --panel2:#262120; --line:#3a332e;
+    --text:#f1e9df; --muted:#a89a8b; --accent:#e8a33d; --accent2:#d9622b;
+    --good:#7fbf6a; --bad:#e0574f;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font:15px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+  .wrap{max-width:980px;margin:0 auto;padding:20px 16px 48px}
+  header h1{margin:0;font-size:26px;letter-spacing:.2px}
+  header h1 span{color:var(--accent)}
+  header p{margin:4px 0 0;color:var(--muted)}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px;margin-top:16px}
+  .card h2{margin:0 0 12px;font-size:13px;text-transform:uppercase;letter-spacing:1.2px;color:var(--muted);font-weight:600}
+  .row{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+  button,select,.filebtn{font:inherit;color:var(--text);background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px 14px;cursor:pointer}
+  button:hover,.filebtn:hover{border-color:var(--accent)}
+  button.primary{background:var(--accent);color:#1b1206;border-color:var(--accent);font-weight:600}
+  button.primary:hover{background:#f0b558}
+  button.stop{background:var(--bad);border-color:var(--bad);color:#fff;font-weight:600}
+  button:disabled{opacity:.45;cursor:not-allowed}
+  .filebtn input{display:none}
+  .status{margin-top:12px;color:var(--muted);min-height:1.4em}
+  .status.err{color:#ff9a8f}
+  .status.ok{color:var(--good)}
+  audio{width:100%;margin-top:12px;display:none}
+  .speed{display:none;margin-top:8px;color:var(--muted);font-size:14px}
+  .live{display:grid;grid-template-columns:auto 1fr;gap:18px;align-items:center}
+  .note{font-size:58px;font-weight:700;min-width:120px;text-align:center;line-height:1;color:var(--accent)}
+  .note small{display:block;font-size:13px;color:var(--muted);font-weight:500;margin-top:6px}
+  .meters{display:grid;gap:10px}
+  .meter{height:10px;background:var(--panel2);border-radius:6px;overflow:hidden;position:relative;border:1px solid var(--line)}
+  .meter i{position:absolute;top:0;bottom:0;left:0;background:linear-gradient(90deg,var(--good),var(--accent),var(--accent2));width:0}
+  .cents{height:14px}
+  .cents::after{content:"";position:absolute;left:50%;top:-2px;bottom:-2px;width:2px;background:var(--muted)}
+  .cents i{width:4px;left:50%;background:var(--accent);margin-left:-2px;transition:left .06s}
+  .lbl{display:flex;justify-content:space-between;color:var(--muted);font-size:12px;margin-bottom:3px}
+  .pos{font-family:var(--mono);color:var(--text);font-size:14px}
+  details summary{cursor:pointer;color:var(--muted);font-size:13px;text-transform:uppercase;letter-spacing:1.2px;font-weight:600}
+  .settings{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin-top:14px}
+  .settings label{display:block;font-size:13px;color:var(--muted);margin-bottom:4px}
+  input[type=range]{width:100%;accent-color:var(--accent)}
+  select{width:100%}
+  pre#tab{font-family:var(--mono);font-size:14px;line-height:1.35;background:#0f0d0c;border:1px solid var(--line);border-radius:10px;padding:14px;margin:0;overflow-x:auto;white-space:pre;min-height:150px;color:#e9dccb}
+  pre#tab .empty{color:var(--muted);font-family:system-ui,sans-serif;white-space:normal}
+  .tabhead{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px}
+  .tabhead h2{margin:0}
+  .count{color:var(--muted);font-size:13px}
+  ul.tips{margin:0;padding-left:18px;color:var(--muted)}
+  ul.tips li{margin:4px 0}
+  ul.tips b{color:var(--text)}
+  #measure{position:absolute;visibility:hidden;font-family:var(--mono);font-size:14px;white-space:pre}
+  @media (max-width:560px){ .live{grid-template-columns:1fr} .note{font-size:48px} }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Tab <span>Listener</span></h1>
+    <p>Play a riff or solo and it writes guitar tab as it hears each note.</p>
+  </header>
+
+  <section class="card">
+    <h2>1 · Choose what to listen to</h2>
+    <div class="row">
+      <button class="primary" id="btnTab">Listen to a browser tab</button>
+      <button id="btnMic">Use microphone</button>
+      <label class="filebtn">Open audio file<input type="file" id="fileIn" accept="audio/*,video/*"></label>
+      <button class="stop" id="btnStop" disabled>Stop</button>
+    </div>
+    <audio id="player" controls></audio>
+    <div class="speed" id="speedRow">Playback speed:
+      <select id="speed" style="width:auto">
+        <option value="1">100%</option><option value="0.75">75%</option><option value="0.5">50% (more accurate on fast parts)</option>
+      </select>
+    </div>
+    <div class="status" id="status">Not listening.</div>
+  </section>
+
+  <section class="card">
+    <h2>2 · What it hears</h2>
+    <div class="live">
+      <div class="note" id="noteName">–<small id="freq">no note</small></div>
+      <div class="meters">
+        <div><div class="lbl"><span>Input level</span><span id="gateLbl">gate</span></div><div class="meter"><i id="level"></i></div></div>
+        <div><div class="lbl"><span>♭ flat</span><span>in tune</span><span>sharp ♯</span></div><div class="meter cents"><i id="cents"></i></div></div>
+        <div class="pos" id="pos">Last note written: –</div>
+      </div>
+    </div>
+    <details style="margin-top:16px">
+      <summary>Settings</summary>
+      <div class="settings">
+        <div><label for="tuning">Tuning</label><select id="tuning"></select></div>
+        <div><label for="sens">Sensitivity: <span id="sensVal"></span></label><input type="range" id="sens" min="1" max="10" step="1" value="6"></div>
+        <div><label for="steady">Steadiness (how long a note must hold): <span id="steadyVal"></span></label><input type="range" id="steady" min="2" max="7" step="1" value="3"></div>
+        <div><label for="maxFret">Highest fret to use</label><select id="maxFret"><option>12</option><option>15</option><option>17</option><option selected>22</option><option>24</option></select></div>
+      </div>
+    </details>
+  </section>
+
+  <section class="card">
+    <div class="tabhead">
+      <h2>3 · Your tab</h2>
+      <span class="count" id="count">0 notes</span>
+      <div class="row">
+        <button id="btnUndo">Undo last</button>
+        <button id="btnRest">Add bar line</button>
+        <button id="btnClear">Clear</button>
+        <button class="primary" id="btnCopy">Copy tab</button>
+      </div>
+    </div>
+    <pre id="tab"><span class="empty">Notes will appear here as they're detected.</span></pre>
+  </section>
+
+  <section class="card">
+    <h2>Tips</h2>
+    <ul class="tips">
+      <li><b>Listening to YouTube:</b> on a computer, use Chrome or Edge. Open the video in another tab, click <b>Listen to a browser tab</b>, pick that tab and make sure <b>"Also share tab audio"</b> is switched on. Then press play on the video.</li>
+      <li><b>Keep this page visible:</b> put the two tabs in side-by-side windows so you can watch the tab being written.</li>
+      <li><b>Works best on single notes:</b> riffs, melodies and solos. Chords, heavy distortion and busy full-band mixes will give messy results because it follows one note at a time.</li>
+      <li><b>Missing quiet notes?</b> Raise Sensitivity. <b>Getting junk notes?</b> Lower Sensitivity or raise Steadiness.</li>
+      <li><b>Fast passages:</b> open the song as a file and play it at 50% speed.</li>
+      <li>The string and fret choice is a best guess that keeps your hand in one area of the neck. The real player may have used a different position.</li>
+    </ul>
+  </section>
+  <span id="measure">0000000000</span>
+</div>
+
+<script id="dsp">
+// ---------- Pure music / DSP logic (no browser APIs) ----------
+const NOTE_NAMES = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+const TUNINGS = {
+  standard: {label:'Standard (E A D G B E)',      notes:[40,45,50,55,59,64]},
+  dropd:    {label:'Drop D (D A D G B E)',        notes:[38,45,50,55,59,64]},
+  halfdown: {label:'Half step down (E♭ standard)', notes:[39,44,49,54,58,63]},
+  dstd:     {label:'Whole step down (D standard)', notes:[38,43,48,53,57,62]},
+  dropc:    {label:'Drop C (C G C F A D)',        notes:[36,43,48,53,57,62]},
+  openg:    {label:'Open G (D G D G B D)',        notes:[38,43,50,55,59,62]},
+  opend:    {label:'Open D (D A D F# A D)',       notes:[38,45,50,54,57,62]},
+  dadgad:   {label:'DADGAD',                      notes:[38,45,50,55,57,62]},
+};
+const midiName = m => NOTE_NAMES[((m%12)+12)%12] + (Math.floor(m/12)-1);
+
+// YIN pitch detector. Returns {freq, clarity} or null.
+function yin(buf, sr, minF, maxF, threshold){
+  const W = Math.floor(buf.length/2);
+  const tauMin = Math.max(2, Math.floor(sr/maxF));
+  const tauMax = Math.min(W-2, Math.ceil(sr/minF));
+  const c = new Float32Array(tauMax+2);
+  let run = 0; c[0] = 1;
+  for (let tau=1; tau<=tauMax+1; tau++){
+    let s = 0;
+    for (let i=0; i<W; i++){ const x = buf[i]-buf[i+tau]; s += x*x; }
+    run += s;
+    c[tau] = run > 0 ? s*tau/run : 1;
+  }
+  let tau = -1;
+  for (let t=tauMin; t<=tauMax; t++){
+    if (c[t] < threshold){
+      while (t+1 <= tauMax && c[t+1] < c[t]) t++;
+      tau = t; break;
+    }
+  }
+  if (tau < 1) return null;
+  const a=c[tau-1], b=c[tau], d=c[tau+1], den=a+d-2*b;
+  let shift = den !== 0 ? 0.5*(a-d)/den : 0;
+  if (Math.abs(shift) > 1) shift = 0;
+  return {freq: sr/(tau+shift), clarity: 1-b};
+}
+
+// Turns a stream of (level, pitch) frames into discrete note onsets.
+class NoteTracker {
+  constructor(opts){ this.opts = opts; this.reset(); }
+  reset(){ this.cand=null; this.candCount=0; this.current=null; this.peak=0; this.dip=0; this.lastEnd=null; this.unvoiced=0; this.onset=false; }
+  process(rms, pitch, time){
+    const o = this.opts, out = [];
+    const voiced = rms >= o.gate && pitch && pitch.freq >= o.minF && pitch.freq <= o.maxF;
+    if (!voiced){
+      this.unvoiced++;
+      if (this.current && (rms < o.gate || this.unvoiced >= 4)){ this.current = null; this.lastEnd = time; }
+      this.cand = null; this.candCount = 0;
+      return out;
+    }
+    this.unvoiced = 0;
+    const mf = 69 + 12*Math.log2(pitch.freq/440), midi = Math.round(mf);
+    // New pluck: level dipped well below its peak then jumped back up. Wait for the pitch to settle again.
+    if (this.current && this.dip < this.peak*0.45 && rms > this.dip*2.2){
+      this.onset = true; this.peak = rms; this.dip = rms; this.cand = null;
+    }
+    if (rms > this.peak){ this.peak = rms; this.dip = rms; } else { this.dip = Math.min(this.dip, rms); }
+    if (midi === this.cand) this.candCount++; else { this.cand = midi; this.candCount = 1; }
+    if (this.candCount >= o.minFrames && (!this.current || this.current.midi !== midi || this.onset)){
+      this.onset = false;
+      const gap = this.current ? 0 : (this.lastEnd == null ? 0 : time - this.lastEnd);
+      this.current = {midi, time};
+      this.peak = rms; this.dip = rms;
+      out.push({midi, time, gap, cents: Math.round((mf-midi)*100)});
+    }
+    return out;
+  }
+}
+
+// Picks a string/fret for a note, keeping the hand near its last position.
+function chooseFret(midi, tuning, state, maxFret){
+  let best = null;
+  for (let s=0; s<tuning.length; s++){
+    const f = midi - tuning[s];
+    if (f < 0 || f > maxFret) continue;
+    let cost;
+    if (state.hand == null) cost = (f === 0 ? 0.5 : f*0.6) + (f > 12 ? 3 : 0);
+    else cost = (f === 0 ? 1.5 : Math.abs(f - state.hand)) + (f > 12 ? 1 : 0)
+              + (state.string != null ? Math.abs(s - state.string)*0.35 : 0)
+              + (f > 0 && Math.abs(f - state.hand) > 4 ? 2 : 0) + f*0.08;
+    if (!best || cost < best.cost) best = {s, f, cost};
+  }
+  if (best){ if (best.f > 0) state.hand = best.f; state.string = best.s; }
+  return best;
+}
+
+// Builds tab text. items: {type:'note', s, f, gap} or {type:'bar'}. Strings indexed low→high.
+function renderTab(items, tuning, width){
+  const n = tuning.length;
+  const names = tuning.map((m,i) => { const nm = NOTE_NAMES[m%12]; return i === n-1 ? nm.toLowerCase() : nm; });
+  const lw = Math.max(...names.map(x => x.length));
+  const cols = [];
+  for (const it of items){
+    if (it.type === 'bar'){ cols.push({bar:true, w:1}); continue; }
+    const rests = Math.min(4, Math.floor((it.gap||0)/0.3));
+    for (let k=0; k<rests; k++) cols.push({w:1});
+    const txt = String(it.f);
+    cols.push({s:it.s, txt, w:txt.length+1});
+  }
+  const avail = Math.max(16, width - lw - 3);
+  const rows = []; let cur = [], used = 0;
+  for (const c of cols){
+    if (used + c.w > avail && cur.length){ rows.push(cur); cur = []; used = 0; }
+    cur.push(c); used += c.w;
+  }
+  if (cur.length || !rows.length) rows.push(cur);
+  const blocks = rows.map(row => {
+    const lines = [];
+    for (let s=n-1; s>=0; s--){
+      let l = names[s].padEnd(lw) + '|-';
+      for (const c of row){
+        if (c.bar) l += '|';
+        else if (c.txt != null) l += (c.s === s ? c.txt : '-'.repeat(c.txt.length)) + '-';
+        else l += '-';
+      }
+      lines.push(l + '|');
+    }
+    return lines.join('\n');
+  });
+  return blocks.join('\n\n');
+}
+
+if (typeof module !== 'undefined') module.exports = {yin, NoteTracker, chooseFret, renderTab, TUNINGS, midiName};
+</script>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const ui = {status:$('status'), noteName:$('noteName'), level:$('level'), cents:$('cents'), pos:$('pos'),
+              tab:$('tab'), count:$('count'), player:$('player'), speedRow:$('speedRow')};
+
+  // Settings
+  const tuningSel = $('tuning');
+  for (const [k,v] of Object.entries(TUNINGS)){ const o = document.createElement('option'); o.value = k; o.textContent = v.label; tuningSel.appendChild(o); }
+  const gateFor = s => 0.05*Math.pow(0.6, s-1);
+  const opts = {gate: gateFor(6), minF: 70, maxF: 1400, minFrames: 3};
+  const tracker = new NoteTracker(opts);
+  const fretState = {hand:null, string:null};
+  function syncSettings(){
+    opts.gate = gateFor(+$('sens').value);
+    opts.minFrames = +$('steady').value;
+    $('sensVal').textContent = $('sens').value + ' / 10';
+    $('steadyVal').textContent = Math.round(opts.minFrames*1024/48) + ' ms';
+    try { localStorage.setItem('tabListenerSettings', JSON.stringify({t:tuningSel.value, s:$('sens').value, st:$('steady').value, m:$('maxFret').value})); } catch(e){}
+  }
+  try {
+    const saved = JSON.parse(localStorage.getItem('tabListenerSettings') || 'null');
+    if (saved){ tuningSel.value = saved.t; $('sens').value = saved.s; $('steady').value = saved.st; $('maxFret').value = saved.m; }
+  } catch(e){}
+  ['sens','steady','maxFret'].forEach(id => $(id).addEventListener('input', syncSettings));
+  tuningSel.addEventListener('change', () => { syncSettings(); remapAll(); });
+  syncSettings();
+
+  const tuning = () => TUNINGS[tuningSel.value].notes;
+  const maxFret = () => +$('maxFret').value;
+
+  // Tab state
+  let items = [];
+  function remapAll(){
+    const st = {hand:null, string:null};
+    items = items.map(it => {
+      if (it.type !== 'note') return it;
+      const p = chooseFret(it.midi, tuning(), st, maxFret());
+      return p ? {...it, s:p.s, f:p.f} : null;
+    }).filter(Boolean);
+    Object.assign(fretState, st);
+    scheduleRender();
+  }
+  let charsPerRow = 60;
+  function measure(){
+    const m = $('measure'); const cw = m.getBoundingClientRect().width/10 || 8.4;
+    const inner = ui.tab.clientWidth - 28;
+    charsPerRow = Math.max(24, Math.floor(inner/cw));
+  }
+  let renderQueued = false;
+  function scheduleRender(){ if (!renderQueued){ renderQueued = true; requestAnimationFrame(render); } }
+  function render(){
+    renderQueued = false;
+    const nNotes = items.filter(i => i.type === 'note').length;
+    ui.count.textContent = nNotes + (nNotes === 1 ? ' note' : ' notes');
+    if (!items.length){ ui.tab.innerHTML = '<span class="empty">Notes will appear here as they\'re detected.</span>'; return; }
+    ui.tab.textContent = renderTab(items, tuning(), charsPerRow);
+    ui.tab.scrollLeft = ui.tab.scrollWidth;
+  }
+  window.addEventListener('resize', () => { measure(); scheduleRender(); });
+  measure();
+
+  $('btnUndo').onclick = () => { items.pop(); scheduleRender(); };
+  $('btnRest').onclick = () => { items.push({type:'bar'}); scheduleRender(); };
+  $('btnClear').onclick = () => { items = []; fretState.hand = null; fretState.string = null; tracker.reset(); scheduleRender(); };
+  $('btnCopy').onclick = async () => {
+    const text = items.length ? renderTab(items, tuning(), charsPerRow) : '';
+    if (!text){ setStatus('Nothing to copy yet.'); return; }
+    try { await navigator.clipboard.writeText(text); setStatus('Tab copied to clipboard.', 'ok'); }
+    catch(e){
+      const r = document.createRange(); r.selectNodeContents(ui.tab);
+      const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r);
+      setStatus('Copy was blocked here. The tab is selected, so press Ctrl/Cmd+C.');
+    }
+  };
+
+  function setStatus(msg, kind){ ui.status.textContent = msg; ui.status.className = 'status' + (kind ? ' ' + kind : ''); }
+
+  // ---------- Audio ----------
+  let ctx = null, chain = null, stream = null, mediaNode = null, frames = 0, ring = null;
+  const live = {rms:0, pitch:null, dirty:false, last:null};
+
+  function ensureCtx(){
+    if (!ctx) ctx = new (window.AudioContext || window.webkitAudioContext)();
+    if (ctx.state === 'suspended') ctx.resume();
+    return ctx;
+  }
+  function startChain(input){
+    stopChain();
+    const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 70;
+    const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 1600;
+    const proc = ctx.createScriptProcessor(1024, 1, 1);
+    const sink = ctx.createGain(); sink.gain.value = 0;
+    input.connect(hp); hp.connect(lp); lp.connect(proc); proc.connect(sink); sink.connect(ctx.destination);
+    ring = new Float32Array(2048); frames = 0; tracker.reset();
+    proc.onaudioprocess = onAudio;
+    chain = {input, hp, lp, proc, sink};
+    $('btnStop').disabled = false;
+    loop();
+  }
+  function stopChain(){
+    if (!chain) return;
+    try { chain.input.disconnect(chain.hp); } catch(e){}
+    chain.proc.onaudioprocess = null;
+    [chain.hp, chain.lp, chain.proc, chain.sink].forEach(n => { try { n.disconnect(); } catch(e){} });
+    chain = null;
+  }
+  function onAudio(e){
+    const x = e.inputBuffer.getChannelData(0), hop = x.length, sr = ctx.sampleRate;
+    if (ring.length !== hop*2) ring = new Float32Array(hop*2);
+    ring.copyWithin(0, hop); ring.set(x, hop);
+    let sum = 0; for (let i=0; i<hop; i++) sum += x[i]*x[i];
+    const rms = Math.sqrt(sum/hop);
+    frames++;
+    const time = frames*hop/sr;
+    const pitch = rms >= opts.gate ? yin(ring, sr, opts.minF, opts.maxF, 0.15) : null;
+    live.rms = rms; live.pitch = pitch; live.dirty = true;
+    for (const ev of tracker.process(rms, pitch, time)){
+      const p = chooseFret(ev.midi, tuning(), fretState, maxFret());
+      if (!p){ live.last = {name: midiName(ev.midi), out:true}; continue; }
+      items.push({type:'note', midi:ev.midi, s:p.s, f:p.f, gap:ev.gap});
+      live.last = {name: midiName(ev.midi), s:p.s, f:p.f};
+      scheduleRender();
+    }
+  }
+  const stringLabel = s => { const names = ['6th','5th','4th','3rd','2nd','1st']; return names[s + (6 - tuning().length)] + ' string'; };
+  function loop(){
+    if (!chain) return;
+    if (live.dirty){
+      live.dirty = false;
+      const lvl = Math.min(1, Math.sqrt(live.rms)*2.2);
+      ui.level.style.width = (lvl*100).toFixed(1) + '%';
+      $('gateLbl').textContent = live.rms >= opts.gate ? 'hearing sound' : 'too quiet';
+      const p = live.pitch;
+      if (p && p.freq >= opts.minF && p.freq <= opts.maxF){
+        const mf = 69 + 12*Math.log2(p.freq/440), m = Math.round(mf), c = (mf-m)*100;
+        ui.noteName.firstChild.nodeValue = NOTE_NAMES[((m%12)+12)%12];
+        $('freq').textContent = midiName(m) + ' · ' + p.freq.toFixed(1) + ' Hz';
+        ui.cents.style.left = (50 + c) + '%';
+      } else {
+        ui.noteName.firstChild.nodeValue = '–';
+        $('freq').textContent = 'no note';
+      }
+      if (live.last) ui.pos.textContent = live.last.out
+        ? 'Last note written: ' + live.last.name + ' (out of range for this tuning)'
+        : 'Last note written: ' + live.last.name + ' → fret ' + live.last.f + ', ' + stringLabel(live.last.s);
+    }
+    requestAnimationFrame(loop);
+  }
+
+  function stopAll(){
+    stopChain();
+    if (stream){ stream.getTracks().forEach(t => t.stop()); stream = null; }
+    if (!ui.player.paused) ui.player.pause();
+    $('btnStop').disabled = true;
+    ui.noteName.firstChild.nodeValue = '–'; $('freq').textContent = 'no note'; ui.level.style.width = '0';
+    setStatus('Stopped. Your tab is kept below.');
+  }
+  $('btnStop').onclick = stopAll;
+
+  const blockedMsg = 'Your browser blocked access to sound here. If you opened this inside the Claude app, download the page and open it in Chrome or Edge on a computer. Opening an audio file still works here.';
+
+  $('btnTab').onclick = async () => {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia){
+      setStatus('Tab listening needs Chrome or Edge on a computer. On a phone, use the microphone or open an audio file.', 'err'); return;
+    }
+    try {
+      ensureCtx();
+      const s = await navigator.mediaDevices.getDisplayMedia({
+        video: true,
+        audio: {echoCancellation:false, noiseSuppression:false, autoGainControl:false},
+        preferCurrentTab: false, selfBrowserSurface: 'exclude', systemAudio: 'include', surfaceSwitching: 'include'
+      });
+      if (!s.getAudioTracks().length){
+        s.getTracks().forEach(t => t.stop());
+        setStatus('No sound came through. Try again, pick the YouTube tab and switch on "Also share tab audio".', 'err'); return;
+      }
+      stopAll();
+      s.getVideoTracks().forEach(t => t.stop());
+      stream = s;
+      s.getAudioTracks()[0].addEventListener('ended', stopAll);
+      startChain(ctx.createMediaStreamSource(s));
+      setStatus('Listening to the shared tab. Press play on the video.', 'ok');
+    } catch(e){
+      if (e && e.name === 'NotAllowedError' && /permission|policy/i.test(e.message||'')) setStatus(blockedMsg, 'err');
+      else if (e && e.name === 'NotAllowedError') setStatus('Sharing was cancelled.', '');
+      else setStatus(blockedMsg, 'err');
+    }
+  };
+
+  $('btnMic').onclick = async () => {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){ setStatus(blockedMsg, 'err'); return; }
+    try {
+      ensureCtx();
+      const s = await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false, noiseSuppression:false, autoGainControl:false}});
+      stopAll(); stream = s;
+      startChain(ctx.createMediaStreamSource(s));
+      setStatus('Listening through the microphone. Play something.', 'ok');
+    } catch(e){
+      setStatus(e && e.name === 'NotAllowedError' && !/policy/i.test(e.message||'') ? 'Microphone access was denied. Allow it in your browser\'s site settings and try again.' : blockedMsg, 'err');
+    }
+  };
+
+  let fileUrl = null;
+  $('fileIn').onchange = e => {
+    const f = e.target.files[0]; if (!f) return;
+    stopAll(); ensureCtx();
+    if (fileUrl) URL.revokeObjectURL(fileUrl);
+    fileUrl = URL.createObjectURL(f);
+    ui.player.src = fileUrl; ui.player.style.display = 'block'; ui.speedRow.style.display = 'block';
+    ui.player.playbackRate = +$('speed').value; ui.player.preservesPitch = true;
+    if (!mediaNode){ mediaNode = ctx.createMediaElementSource(ui.player); mediaNode.connect(ctx.destination); }
+    startChain(mediaNode);
+    setStatus('Loaded "' + f.name + '". Press play to start writing tab.', 'ok');
+    ui.player.play().catch(() => {});
+    e.target.value = '';
+  };
+  ui.player.addEventListener('play', () => { ensureCtx(); if (!chain && mediaNode){ startChain(mediaNode); setStatus('Listening to the file.', 'ok'); } });
+  ui.player.addEventListener('ended', () => setStatus('Reached the end of the file.', 'ok'));
+  $('speed').onchange = () => { ui.player.playbackRate = +$('speed').value; };
+})();
+</script>
+</body>
+</html>
