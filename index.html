@@ -55,6 +55,12 @@
   .tabhead{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px}
   .tabhead h2{margin:0}
   .count{color:var(--muted);font-size:13px}
+  .seg{display:inline-flex;border:1px solid var(--line);border-radius:10px;overflow:hidden}
+  .seg button{border:0;border-radius:0;padding:8px 12px;background:var(--panel2)}
+  .seg button.on{background:var(--accent);color:#1b1206;font-weight:600}
+  pre#tab.names{white-space:pre-wrap;word-spacing:4px;font-size:18px;line-height:1.7}
+  .focus{margin-top:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;color:var(--muted);font-size:14px}
+  .focus select{width:auto}
   ul.tips{margin:0;padding-left:18px;color:var(--muted)}
   ul.tips li{margin:4px 0}
   ul.tips b{color:var(--text)}
@@ -76,6 +82,15 @@
       <button id="btnMic">Use microphone</button>
       <label class="filebtn">Open audio file<input type="file" id="fileIn" accept="audio/*,video/*"></label>
       <button class="stop" id="btnStop" disabled>Stop</button>
+    </div>
+    <div class="focus"><label for="focus">Focus on:</label>
+      <select id="focus">
+        <option value="mix">Whole song</option>
+        <option value="side">Guitars – remove centre (vocals, bass, drums)</option>
+        <option value="left">Left side only</option>
+        <option value="right">Right side only</option>
+      </select>
+      <span id="focusNote"></span>
     </div>
     <audio id="player" controls></audio>
     <div class="speed" id="speedRow">Playback speed:
@@ -111,8 +126,10 @@
   <section class="card">
     <div class="tabhead">
       <h2>3 · Your tab</h2>
+      <div class="seg"><button id="viewTab" class="on">Tab</button><button id="viewNames">Note names</button></div>
       <span class="count" id="count">0 notes</span>
       <div class="row">
+        <button id="btnPlay">▶ Play back</button>
         <button id="btnUndo">Undo last</button>
         <button id="btnRest">Add bar line</button>
         <button id="btnClear">Clear</button>
@@ -127,6 +144,8 @@
     <ul class="tips">
       <li><b>Listening to YouTube:</b> on a computer, use Chrome or Edge. Open the video in another tab, click <b>Listen to a browser tab</b>, pick that tab and make sure <b>"Also share tab audio"</b> is switched on. Then press play on the video.</li>
       <li><b>Keep this page visible:</b> put the two tabs in side-by-side windows so you can watch the tab being written.</li>
+      <li><b>Full songs:</b> try <b>Focus on → Guitars – remove centre</b>. It cancels whatever sits in the middle of the stereo mix (usually vocals, bass, kick and snare), leaving guitars panned to the sides. It works on audio files and computer tab listening, not the phone microphone, which only hears one mixed signal. If the guitar is on one side, try <b>Left</b> or <b>Right side only</b>. Results depend on how the song was mixed.</li>
+      <li><b>Check it by ear:</b> <b>Play back</b> plays the detected notes so you can hear whether they match.</li>
       <li><b>Works best on single notes:</b> riffs, melodies and solos. Chords, heavy distortion and busy full-band mixes will give messy results because it follows one note at a time.</li>
       <li><b>The white line on the level bar is the trigger point.</b> Notes are only written when the bar goes past it. The app adjusts to your room's background noise after a few seconds.</li>
       <li><b>Missing quiet notes?</b> Raise Sensitivity. <b>Getting junk notes?</b> Lower Sensitivity or raise Steadiness.</li>
@@ -304,7 +323,18 @@ function renderTab(items, tuning, width){
   return blocks.join('\n\n');
 }
 
-if (typeof module !== 'undefined') module.exports = {yin, NoteTracker, Analyzer, chooseFret, renderTab, TUNINGS, midiName};
+// Plain note-name view: "E  G  A  A  ·  B". A dot marks a pause, | a bar line.
+function renderNames(items){
+  const parts = [];
+  for (const it of items){
+    if (it.type === 'bar'){ parts.push('|'); continue; }
+    if (parts.length && it.gap > 0.6) parts.push('·');
+    parts.push(NOTE_NAMES[((it.midi%12)+12)%12]);
+  }
+  return parts.join('  ');
+}
+
+if (typeof module !== 'undefined') module.exports = {renderNames, yin, NoteTracker, Analyzer, chooseFret, renderTab, TUNINGS, midiName};
 </script>
 
 <script>
@@ -350,6 +380,8 @@ if (typeof module !== 'undefined') module.exports = {yin, NoteTracker, Analyzer,
     Object.assign(fretState, st);
     scheduleRender();
   }
+  let view = 'tab';
+  const currentText = () => view === 'tab' ? renderTab(items, tuning(), charsPerRow) : renderNames(items);
   let charsPerRow = 60;
   function measure(){
     const m = $('measure'); const cw = m.getBoundingClientRect().width/10 || 8.4;
@@ -363,17 +395,20 @@ if (typeof module !== 'undefined') module.exports = {yin, NoteTracker, Analyzer,
     const nNotes = items.filter(i => i.type === 'note').length;
     ui.count.textContent = nNotes + (nNotes === 1 ? ' note' : ' notes');
     if (!items.length){ ui.tab.innerHTML = '<span class="empty">Notes will appear here as they\'re detected.</span>'; return; }
-    ui.tab.textContent = renderTab(items, tuning(), charsPerRow);
+    ui.tab.classList.toggle('names', view === 'names');
+    ui.tab.textContent = currentText();
     ui.tab.scrollLeft = ui.tab.scrollWidth;
   }
   window.addEventListener('resize', () => { measure(); scheduleRender(); });
   measure();
 
+  $('viewTab').onclick = () => { view = 'tab'; $('viewTab').classList.add('on'); $('viewNames').classList.remove('on'); scheduleRender(); };
+  $('viewNames').onclick = () => { view = 'names'; $('viewNames').classList.add('on'); $('viewTab').classList.remove('on'); scheduleRender(); };
   $('btnUndo').onclick = () => { items.pop(); scheduleRender(); };
   $('btnRest').onclick = () => { items.push({type:'bar'}); scheduleRender(); };
   $('btnClear').onclick = () => { items = []; fretState.hand = null; fretState.string = null; tracker.reset(); scheduleRender(); };
   $('btnCopy').onclick = async () => {
-    const text = items.length ? renderTab(items, tuning(), charsPerRow) : '';
+    const text = items.length ? currentText() : '';
     if (!text){ setStatus('Nothing to copy yet.'); return; }
     try { await navigator.clipboard.writeText(text); setStatus('Tab copied to clipboard.', 'ok'); }
     catch(e){
@@ -381,6 +416,39 @@ if (typeof module !== 'undefined') module.exports = {yin, NoteTracker, Analyzer,
       const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r);
       setStatus('Copy was blocked here. The tab is selected, so press Ctrl/Cmd+C.');
     }
+  };
+
+  let pb = null;
+  function pluck(m, t, out){
+    const f = 440*Math.pow(2, (m-69)/12);
+    const o1 = ctx.createOscillator(), o2 = ctx.createOscillator(), g2 = ctx.createGain(), lp = ctx.createBiquadFilter(), g = ctx.createGain();
+    o1.type = 'triangle'; o2.type = 'sawtooth'; o1.frequency.value = f; o2.frequency.value = f; g2.gain.value = 0.2;
+    lp.type = 'lowpass'; lp.frequency.setValueAtTime(Math.min(12000, f*8), t); lp.frequency.exponentialRampToValueAtTime(f*1.5, t+0.9);
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(1, t+0.005); g.gain.exponentialRampToValueAtTime(0.001, t+1.3);
+    o1.connect(lp); o2.connect(g2); g2.connect(lp); lp.connect(g); g.connect(out);
+    o1.start(t); o2.start(t); o1.stop(t+1.4); o2.stop(t+1.4);
+  }
+  function stopPlayback(){
+    if (!pb) return;
+    try { pb.out.disconnect(); } catch(e){}
+    clearTimeout(pb.timer); pb = null; muteUntil = 0;
+    $('btnPlay').textContent = '▶ Play back';
+  }
+  $('btnPlay').onclick = () => {
+    if (pb){ stopPlayback(); return; }
+    const notes = items.filter(i => i.type === 'note');
+    if (!notes.length){ setStatus('No notes to play yet.'); return; }
+    ensureCtx();
+    const out = ctx.createGain(); out.gain.value = 0.25; out.connect(ctx.destination);
+    let t = ctx.currentTime + 0.1, prev = null;
+    for (const n of notes){
+      if (prev != null){ const d = n.time - prev; t += (d > 0 && isFinite(d)) ? Math.min(1, Math.max(0.12, d)) : 0.3; }
+      prev = n.time;
+      pluck(n.midi, t, out);
+    }
+    muteUntil = t + 1.5; // don't transcribe our own playback through the mic
+    pb = {out, timer: setTimeout(stopPlayback, (t + 1.5 - ctx.currentTime)*1000)};
+    $('btnPlay').textContent = '■ Stop playback';
   };
 
   function setStatus(msg, kind){ ui.status.textContent = msg; ui.status.className = 'status' + (kind ? ' ' + kind : ''); }
@@ -396,26 +464,43 @@ if (typeof module !== 'undefined') module.exports = {yin, NoteTracker, Analyzer,
   }
   function startChain(input){
     stopChain();
+    const split = ctx.createChannelSplitter(2);
+    const gL = ctx.createGain(), gR = ctx.createGain();
+    const mono = ctx.createGain(); mono.channelCount = 1; mono.channelCountMode = 'explicit'; mono.channelInterpretation = 'discrete';
+    input.connect(split); split.connect(gL, 0); split.connect(gR, 1); gL.connect(mono); gR.connect(mono);
     const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 70;
     const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 1600;
     const proc = ctx.createScriptProcessor(1024, 1, 1);
     const sink = ctx.createGain(); sink.gain.value = 0;
-    input.connect(hp); hp.connect(lp); lp.connect(proc); proc.connect(sink); sink.connect(ctx.destination);
+    mono.connect(hp); hp.connect(lp); lp.connect(proc); proc.connect(sink); sink.connect(ctx.destination);
     analyzer.reset();
     proc.onaudioprocess = onAudio;
-    chain = {input, hp, lp, proc, sink};
+    chain = {input, split, gL, gR, mono, hp, lp, proc, sink};
+    applyFocus();
     $('btnStop').disabled = false;
     loop();
   }
   function stopChain(){
     if (!chain) return;
-    try { chain.input.disconnect(chain.hp); } catch(e){}
+    try { chain.input.disconnect(chain.split); } catch(e){}
     chain.proc.onaudioprocess = null;
-    [chain.hp, chain.lp, chain.proc, chain.sink].forEach(n => { try { n.disconnect(); } catch(e){} });
+    [chain.split, chain.gL, chain.gR, chain.mono, chain.hp, chain.lp, chain.proc, chain.sink].forEach(n => { try { n.disconnect(); } catch(e){} });
     chain = null;
   }
   let fpsCount = 0, fpsT = 0, fps = 0;
+  const FOCUS = {mix:[0.5,0.5], side:[1,-1], left:[1,0], right:[0,1]};
+  function applyFocus(){
+    const v = $('focus').value;
+    $('focusNote').textContent = (v !== 'mix' && sourceKind === 'mic') ? 'Only works with files or tab listening, not the microphone.' : '';
+    if (!chain) return;
+    const [l, r] = (sourceKind === 'mic' && v !== 'mix') ? [1, 0] : FOCUS[v];
+    chain.gL.gain.value = l; chain.gR.gain.value = r;
+    analyzer.nf = 0.0005;
+  }
+  $('focus').addEventListener('change', applyFocus);
+  let sourceKind = null, muteUntil = 0;
   function onAudio(e){
+    if (ctx.currentTime < muteUntil){ return; }
     const r = analyzer.frame(e.inputBuffer.getChannelData(0), ctx.sampleRate);
     const rms = r.rms, pitch = r.pitch;
     live.rms = rms; live.pitch = pitch; live.gate = r.gate; live.dirty = true;
@@ -424,7 +509,7 @@ if (typeof module !== 'undefined') module.exports = {yin, NoteTracker, Analyzer,
       if (ev.replace && items.length && items[items.length-1].type === 'note') items.pop();
       const p = chooseFret(ev.midi, tuning(), fretState, maxFret());
       if (!p){ live.last = {name: midiName(ev.midi), out:true}; continue; }
-      items.push({type:'note', midi:ev.midi, s:p.s, f:p.f, gap:ev.gap});
+      items.push({type:'note', midi:ev.midi, s:p.s, f:p.f, gap:ev.gap, time:ev.time});
       live.last = {name: midiName(ev.midi), s:p.s, f:p.f};
       scheduleRender();
     }
@@ -491,7 +576,7 @@ if (typeof module !== 'undefined') module.exports = {yin, NoteTracker, Analyzer,
       s.getVideoTracks().forEach(t => t.stop());
       stream = s;
       s.getAudioTracks()[0].addEventListener('ended', stopAll);
-      startChain(ctx.createMediaStreamSource(s));
+      sourceKind = 'tab'; startChain(ctx.createMediaStreamSource(s));
       setStatus('Listening to the shared tab. Press play on the video.', 'ok');
     } catch(e){
       if (e && e.name === 'NotAllowedError' && /permission|policy/i.test(e.message||'')) setStatus(blockedMsg, 'err');
@@ -506,7 +591,7 @@ if (typeof module !== 'undefined') module.exports = {yin, NoteTracker, Analyzer,
       ensureCtx();
       const s = await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false, noiseSuppression:false, autoGainControl:false}});
       stopAll(); stream = s;
-      startChain(ctx.createMediaStreamSource(s));
+      sourceKind = 'mic'; startChain(ctx.createMediaStreamSource(s));
       setStatus('Listening through the microphone. Play something.', 'ok');
     } catch(e){
       setStatus(e && e.name === 'NotAllowedError' && !/policy/i.test(e.message||'') ? 'Microphone access was denied. Allow it in your browser\'s site settings and try again.' : blockedMsg, 'err');
@@ -522,12 +607,12 @@ if (typeof module !== 'undefined') module.exports = {yin, NoteTracker, Analyzer,
     ui.player.src = fileUrl; ui.player.style.display = 'block'; ui.speedRow.style.display = 'block';
     ui.player.playbackRate = +$('speed').value; ui.player.preservesPitch = true;
     if (!mediaNode){ mediaNode = ctx.createMediaElementSource(ui.player); mediaNode.connect(ctx.destination); }
-    startChain(mediaNode);
+    sourceKind = 'file'; startChain(mediaNode);
     setStatus('Loaded "' + f.name + '". Press play to start writing tab.', 'ok');
     ui.player.play().catch(() => {});
     e.target.value = '';
   };
-  ui.player.addEventListener('play', () => { ensureCtx(); if (!chain && mediaNode){ startChain(mediaNode); setStatus('Listening to the file.', 'ok'); } });
+  ui.player.addEventListener('play', () => { ensureCtx(); if (!chain && mediaNode){ sourceKind = 'file'; startChain(mediaNode); setStatus('Listening to the file.', 'ok'); } });
   ui.player.addEventListener('ended', () => setStatus('Reached the end of the file.', 'ok'));
   $('speed').onchange = () => { ui.player.playbackRate = +$('speed').value; };
 })();
