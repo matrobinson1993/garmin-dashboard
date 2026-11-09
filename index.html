@@ -61,6 +61,7 @@
   pre#tab.names{white-space:pre-wrap;word-spacing:4px;font-size:18px;line-height:1.7}
   .focus{margin-top:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;color:var(--muted);font-size:14px}
   .focus select{width:auto}
+  #btnRec.rec{background:var(--bad);border-color:var(--bad);color:#fff;font-weight:600}
   .prog{height:8px;background:var(--panel2);border:1px solid var(--line);border-radius:6px;overflow:hidden;margin-top:12px;display:none}
   .prog i{display:block;height:100%;width:0;background:var(--accent);transition:width .2s}
   .opts{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-top:12px}
@@ -111,7 +112,11 @@
     <h2>Or: transcribe a whole song <span class="badge">more accurate</span></h2>
     <p style="margin:0;color:var(--muted)">Listens to the entire file first using an AI note-detection model (Spotify's Basic Pitch), then writes the tab. It takes longer but handles chords and busy mixes far better. The "Focus on" setting above applies here too.</p>
     <div class="opts">
-      <div><label>Song file</label><label class="filebtn" style="display:inline-block;color:var(--text);margin:0">Choose song<input type="file" id="songIn" accept="audio/*,video/*"></label> <span id="songName" style="color:var(--muted);font-size:13px"></span></div>
+      <div><label>Song file or recording</label>
+        <div class="row"><label class="filebtn" style="display:inline-block;color:var(--text);margin:0">Choose song<input type="file" id="songIn" accept="audio/*,video/*"></label>
+        <button id="btnRec">● Record</button></div>
+        <div id="songName" style="color:var(--muted);font-size:13px;margin-top:6px"></div>
+        <audio id="recPlayer" controls style="display:none;margin-top:8px"></audio></div>
       <div><label for="part">What to write</label><select id="part"><option value="lead">Riffs &amp; solos (one note at a time)</option><option value="chords">Chords and riffs</option></select></div>
       <div><label for="detail">Detail</label><select id="detail"><option value="0.5">Fewer notes (cleaner)</option><option value="0.35" selected>Balanced</option><option value="0.22">More notes (catches quiet ones)</option></select></div>
       <div><label for="fromS">Only from … to … (seconds, optional)</label><div class="row" style="flex-wrap:nowrap"><input type="number" id="fromS" min="0" placeholder="start"><input type="number" id="toS" min="0" placeholder="end"></div></div>
@@ -164,6 +169,7 @@
     <ul class="tips">
       <li><b>Listening to YouTube:</b> on a computer, use Chrome or Edge. Open the video in another tab, click <b>Listen to a browser tab</b>, pick that tab and make sure <b>"Also share tab audio"</b> is switched on. Then press play on the video.</li>
       <li><b>Keep this page visible:</b> put the two tabs in side-by-side windows so you can watch the tab being written.</li>
+      <li><b>Recording:</b> tap <b>● Record</b> in the whole-song section, play the riff (from your guitar or a speaker) close to the phone, tap <b>Stop</b>, then <b>Transcribe song</b>. Recordings are mono, so "Focus on" has no effect on them. A quiet room and the guitar close to the mic help a lot.</li>
       <li><b>Best accuracy:</b> use <b>Transcribe a whole song</b> with a short section (the riff you want) set in "Only from … to …". Shorter sections process faster, especially on a phone.</li>
       <li><b>Full songs:</b> try <b>Focus on → Guitars – remove centre</b>. It cancels whatever sits in the middle of the stereo mix (usually vocals, bass, kick and snare), leaving guitars panned to the sides. It works on audio files and computer tab listening, not the phone microphone, which only hears one mixed signal. If the guitar is on one side, try <b>Left</b> or <b>Right side only</b>. Results depend on how the song was mixed.</li>
       <li><b>Check it by ear:</b> <b>Play back</b> plays the detected notes so you can hear whether they match.</li>
@@ -587,13 +593,69 @@ if (typeof module !== 'undefined') module.exports = {chooseChord, eventsToItems,
     return {audio: res, offset: from, length: to - from, stereo: buf.numberOfChannels > 1};
   }
 
+  // ---------- Record through the microphone ----------
+  let rec = null;
+  function toWav(chunks, sr){
+    const n = chunks.reduce((a,c) => a + c.length, 0);
+    const buf = new ArrayBuffer(44 + n*2), v = new DataView(buf);
+    const w = (o, str) => { for (let i=0; i<str.length; i++) v.setUint8(o+i, str.charCodeAt(i)); };
+    w(0,'RIFF'); v.setUint32(4, 36 + n*2, true); w(8,'WAVE'); w(12,'fmt '); v.setUint32(16,16,true); v.setUint16(20,1,true); v.setUint16(22,1,true);
+    v.setUint32(24, sr, true); v.setUint32(28, sr*2, true); v.setUint16(32,2,true); v.setUint16(34,16,true); w(36,'data'); v.setUint32(40, n*2, true);
+    let o = 44; for (const c of chunks) for (let i=0; i<c.length; i++){ const x = Math.max(-1, Math.min(1, c[i])); v.setInt16(o, x < 0 ? x*0x8000 : x*0x7fff, true); o += 2; }
+    return new Blob([buf], {type:'audio/wav'});
+  }
+  const fmtTime = t => Math.floor(t/60) + ':' + String(Math.floor(t%60)).padStart(2,'0');
+  function stopRecording(){
+    if (!rec) return;
+    const r = rec; rec = null;
+    clearInterval(r.timer); r.proc.onaudioprocess = null;
+    try { r.src.disconnect(); r.proc.disconnect(); r.sink.disconnect(); } catch(e){}
+    r.stream.getTracks().forEach(t => t.stop());
+    $('btnRec').textContent = '● Record'; $('btnRec').classList.remove('rec');
+    const secs = r.chunks.reduce((a,c) => a + c.length, 0) / r.sr;
+    if (secs < 0.5){ songStatus('Recording was too short. Try again.', 'err'); return; }
+    const blob = toWav(r.chunks, r.sr);
+    songFile = new File([blob], 'Recording.wav', {type:'audio/wav'});
+    const pl = $('recPlayer'); if (pl.src) URL.revokeObjectURL(pl.src); pl.src = URL.createObjectURL(blob); pl.style.display = 'block';
+    $('songName').textContent = 'Recording (' + fmtTime(secs) + ')';
+    $('btnTranscribe').disabled = false;
+    songStatus('Recorded ' + fmtTime(secs) + '. Listen back if you like, then tap "Transcribe song".', 'ok');
+  }
+  $('btnRec').onclick = async () => {
+    if (rec){ stopRecording(); return; }
+    if (busy) return;
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){ songStatus(blockedMsg, 'err'); return; }
+    try {
+      ensureCtx();
+      const stream = await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false, noiseSuppression:false, autoGainControl:false}});
+      stopAll();
+      const src = ctx.createMediaStreamSource(stream), proc = ctx.createScriptProcessor(4096, 1, 1), sink = ctx.createGain();
+      sink.gain.value = 0; src.connect(proc); proc.connect(sink); sink.connect(ctx.destination);
+      const r = {stream, src, proc, sink, chunks: [], sr: ctx.sampleRate, start: performance.now()};
+      proc.onaudioprocess = e => { r.chunks.push(new Float32Array(e.inputBuffer.getChannelData(0))); };
+      r.timer = setInterval(() => {
+        const t = (performance.now() - r.start)/1000;
+        songStatus('Recording… ' + fmtTime(t) + '. Play the song or your guitar near the phone, then tap Stop.');
+        if (t > 600) stopRecording();
+      }, 250);
+      rec = r;
+      $('btnRec').textContent = '■ Stop recording'; $('btnRec').classList.add('rec');
+      songStatus('Recording… 0:00. Play the song or your guitar near the phone, then tap Stop.');
+    } catch(e){
+      songStatus(e && e.name === 'NotAllowedError' && !/policy/i.test(e.message||'') ? 'Microphone access was denied. Allow it in your browser\'s site settings and try again.' : blockedMsg, 'err');
+    }
+  };
+
   $('songIn').onchange = e => {
+    if (rec) stopRecording();
+    $('recPlayer').style.display = 'none';
     songFile = e.target.files[0] || null; e.target.value = '';
     $('songName').textContent = songFile ? songFile.name : '';
     $('btnTranscribe').disabled = !songFile;
     if (songFile) songStatus('Ready. Tap "Transcribe song".');
   };
   $('btnTranscribe').onclick = async () => {
+    if (rec) stopRecording();
     if (!songFile || busy) return;
     busy = true; $('btnTranscribe').disabled = true; progress(0);
     try {
