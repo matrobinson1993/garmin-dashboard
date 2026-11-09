@@ -48,6 +48,9 @@ svg{touch-action:pan-y}
 #lock button,.btn{width:100%;padding:12px;font:inherit;font-weight:600;border:0;border-radius:8px;background:var(--acc);color:#fff;cursor:pointer}
 #lock label{display:flex;gap:8px;align-items:center;color:var(--mut);margin-bottom:14px}#lockErr{color:var(--warn);min-height:20px;margin:8px 0 0}
 .links a{display:inline-block;margin:0 14px 8px 0}
+.exp{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px;align-items:center}
+.dl{font:inherit;font-size:13px;padding:7px 12px;border:1px solid var(--line);border-radius:99px;background:var(--card);color:var(--ink);cursor:pointer}
+.dl::before{content:'⬇ ';color:var(--acc)}.dl:active{background:var(--acc2)}
 </style>
 </head>
 <body>
@@ -123,7 +126,7 @@ const tile = (v, l) => `<div class="tile"><b>${v}</b><span>${l}</span></div>`;
 function overview(){
   const days=inRange(G.days), acts=inRange(G.activities), el=$('#overview');
   const all=G.activities;
-  el.innerHTML = `<div class="grid">
+  el.innerHTML = expBar([['bytype','By type CSV'],['weekly','Weekly totals CSV'],['health','Daily data CSV']]) + `<div class="grid">
     ${tile(fmt(acts.length),'activities')}${tile(fmt(sum(acts.map(a=>a.km)),0)+' km','distance')}
     ${tile(fmt(sum(acts.map(a=>a.sec))/3600,0)+' h','activity time')}${tile(fmt(avg(days.map(d=>d.steps))),'avg daily steps')}
     ${tile(fmt(avg(days.map(d=>d.rhr))),'avg resting HR')}${tile(fmt(avg(days.map(d=>d.sleepH)),1)+' h','avg sleep')}
@@ -139,17 +142,17 @@ function overview(){
   c.append(chartCard('Daily steps',days,'steps',{bar:1}));
 }
 function health(){
-  const days=inRange(G.days), el=$('#health'); el.innerHTML='<div class="charts"></div>'; const c=el.firstChild;
+  const days=inRange(G.days), el=$('#health'); el.innerHTML=expBar([['health','Daily health CSV'],['weights','Weigh-ins CSV']])+'<div class="charts"></div>'; const c=el.querySelector('.charts');
   [['Resting heart rate','rhr',{unit:' bpm'}],['Overnight HRV','hrv',{unit:' ms'}],['Average stress','stress',{}],
    ['Body Battery (daily high)','bbHigh',{}],['Training readiness','readiness',{}],['VO₂ max','vo2',{dec:1}],
    ['Weight','kg',{unit:' kg',dec:1}],['Intensity minutes','intensity',{bar:1}],['Active calories','activeKcal',{bar:1}],
    ['Floors climbed','floors',{bar:1}],['SpO₂','spo2',{unit:'%'}],['Waking respiration','resp',{unit:' brpm',dec:1}]]
    .forEach(([t,k,o])=>{ if(G.days.some(d=>d[k]!=null)) c.append(chartCard(t,days,k,o)); });
-  if(!c.children.length) el.innerHTML='<div class="empty">No daily health data yet.</div>';
+  if(!c.children.length) c.outerHTML='<div class="empty">No daily health data yet.</div>';
 }
 function sleep(){
   const days=inRange(G.days).filter(d=>d.sleepH), el=$('#sleep');
-  el.innerHTML=`<div class="grid">${tile(fmt(avg(days.map(d=>d.sleepH)),1)+' h','avg sleep')}${tile(fmt(avg(days.map(d=>d.deepH)),1)+' h','avg deep')}${tile(fmt(avg(days.map(d=>d.remH)),1)+' h','avg REM')}${tile(fmt(avg(days.map(d=>d.sleepScore))),'avg sleep score')}</div><div class="charts"></div>
+  el.innerHTML=expBar([['sleep','Sleep CSV']])+`<div class="grid">${tile(fmt(avg(days.map(d=>d.sleepH)),1)+' h','avg sleep')}${tile(fmt(avg(days.map(d=>d.deepH)),1)+' h','avg deep')}${tile(fmt(avg(days.map(d=>d.remH)),1)+' h','avg REM')}${tile(fmt(avg(days.map(d=>d.sleepScore))),'avg sleep score')}</div><div class="charts"></div>
   <div class="card" style="margin-top:16px"><h2>Recent nights</h2><div class="tw"><table><thead><tr><th>Date</th><th class="n">Total</th><th class="n">Deep</th><th class="n">Light</th><th class="n">REM</th><th class="n">Awake</th><th class="n">Score</th></tr></thead><tbody>${
    days.slice().reverse().slice(0,120).map(d=>`<tr><td>${d.d}</td><td class="n">${fmt(d.sleepH,1)}</td><td class="n">${fmt(d.deepH,1)}</td><td class="n">${fmt(d.lightH,1)}</td><td class="n">${fmt(d.remH,1)}</td><td class="n">${fmt(d.awakeH,1)}</td><td class="n">${fmt(d.sleepScore)}</td></tr>`).join('')}</tbody></table></div></div>`;
   const c=el.querySelector('.charts');
@@ -164,14 +167,14 @@ function activities(){
   const el=$('#activities'), types=[...new Set(G.activities.map(a=>a.type))].sort();
   if(!el.innerHTML){
     el.innerHTML=`<div class="bar"><select id="ftype"><option value="">All types</option>${types.map(t=>`<option value="${esc(t)}">${label(t)}</option>`).join('')}</select>
-      <input id="q" placeholder="Search name or location" style="flex:1;min-width:160px"><button id="csv">Export CSV</button><span class="mut" id="cnt"></span></div>
+      <input id="q" placeholder="Search name or location" style="flex:1;min-width:160px"><button class="dl" id="csv">CSV</button><span class="mut" id="cnt"></span></div>
       <div class="card"><div class="tw"><table><thead><tr>
       ${[['start','Date'],['name','Name'],['type','Type'],['km','Km','n'],['sec','Time','n'],['speed','Pace/speed','n'],['avgHr','Avg HR','n'],['elev','Elev m','n'],['kcal','kcal','n'],['aerobicTE','TE','n']].map(([k,l,c])=>`<th data-k="${k}" class="${c||''}">${l}</th>`).join('')}
       </tr></thead><tbody id="atb"></tbody></table></div></div>`;
     $('#ftype').onchange=e=>{TYPE=e.target.value; activities();};
     $('#q').oninput=e=>{Q=e.target.value.toLowerCase(); activities();};
     el.querySelectorAll('th').forEach(th=>th.onclick=()=>{const k=th.dataset.k; SORT={k,dir:SORT.k===k?-SORT.dir:-1}; activities();});
-    $('#csv').onclick=()=>downloadCSV(currentActs());
+    $('#csv').onclick=EXPORTS.activities;
   }
   $('#ftype').value=TYPE;
   const rows=currentActs();
@@ -192,18 +195,67 @@ function detail(id){
    <p>${a.fit?`<a href="activities/fit/${a.id}.zip" download>Original FIT file</a> · `:''}${a.gpx?`<a href="activities/gpx/${a.id}.gpx" download>GPX</a> · `:''}${a.lat?`<a href="https://www.openstreetmap.org/?mlat=${a.lat}&mlon=${a.lon}#map=13/${a.lat}/${a.lon}" target="_blank">Start on map</a> · `:''}<a href="https://connect.garmin.com/modern/activity/${a.id}" target="_blank">Open in Garmin Connect</a></p>`;
   $('#dlg').showModal();
 }
-function downloadCSV(rows){
-  const keys=['id','start','name','type','km','sec','movSec','speed','avgHr','maxHr','elev','kcal','cadence','power','aerobicTE','anaerobicTE','vo2','steps','loc'];
+// ---- exports --------------------------------------------------------------
+const RANGE_TAG = () => ({30:'30d',90:'90d',365:'1y',0:'all'})[RANGE] || RANGE+'d';
+const today = () => { const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); };
+function saveFile(name, text, mime){
+  const u=URL.createObjectURL(new Blob([text],{type:mime})); const l=document.createElement('a');
+  l.href=u; l.download=name; document.body.appendChild(l); l.click(); l.remove(); setTimeout(()=>URL.revokeObjectURL(u),2000);
+}
+function toCSV(rows, cols){ // cols: [[header, key | fn]]
   const q=v=>v==null?'':/[",\n]/.test(String(v))?'"'+String(v).replace(/"/g,'""')+'"':v;
-  const csv=[keys.join(','),...rows.map(r=>keys.map(k=>q(r[k])).join(','))].join('\n');
-  const u=URL.createObjectURL(new Blob([csv],{type:'text/csv'})); const l=document.createElement('a'); l.href=u; l.download='garmin_activities.csv'; l.click(); URL.revokeObjectURL(u);
+  const get=(r,c)=>typeof c==='function'?c(r):r[c];
+  const used=cols.filter(([,c])=>rows.some(r=>get(r,c)!=null&&get(r,c)!==''));
+  return '﻿'+[used.map(c=>q(c[0])).join(','),...rows.map(r=>used.map(([,c])=>q(get(r,c))).join(','))].join('\r\n');
+}
+function exportCSV(what, rows, cols, allTime){
+  if(!rows.length){ alert('Nothing to export in this time range.'); return; }
+  saveFile(`garmin_${what}_${allTime?'all':RANGE_TAG()}_${today()}.csv`, toCSV(rows, cols), 'text/csv;charset=utf-8');
+}
+const hmsCol = k => r => r[k] ? hms(r[k]) : null;
+const ACT_COLS=[['Activity ID','id'],['Start (local)','start'],['Name','name'],['Type',r=>label(r.type)],['Distance km','km'],['Duration',hmsCol('sec')],['Duration s','sec'],['Moving time',hmsCol('movSec')],
+  ['Pace / speed',r=>r.km&&r.speed?pace(r):null],['Avg speed m/s','speed'],['Avg HR','avgHr'],['Max HR','maxHr'],['Elevation gain m','elev'],['Calories','kcal'],['Cadence','cadence'],['Avg power W','power'],
+  ['Aerobic TE','aerobicTE'],['Anaerobic TE','anaerobicTE'],['VO2 max','vo2'],['Steps','steps'],['Location','loc'],['Start lat','lat'],['Start lon','lon'],['Notes','desc']];
+const HEALTH_COLS=[['Date','d'],['Steps','steps'],['Step goal','stepGoal'],['Distance km','km'],['Total kcal','kcal'],['Active kcal','activeKcal'],['Resting HR','rhr'],['Max HR','maxHr'],
+  ['Avg stress','stress'],['Body Battery high','bbHigh'],['Body Battery low','bbLow'],['Floors','floors'],['Intensity minutes','intensity'],['Overnight HRV ms','hrv'],['Training readiness','readiness'],
+  ['VO2 max','vo2'],['SpO2 %','spo2'],['Waking respiration brpm','resp'],['Weight kg','kg']];
+const SLEEP_COLS=[['Date','d'],['Total sleep h','sleepH'],['Deep h','deepH'],['Light h','lightH'],['REM h','remH'],['Awake h','awakeH'],['Sleep score','sleepScore']];
+const WEIGHT_COLS=[['Date','d'],['Weight kg','kg'],['BMI','bmi'],['Body fat %','fat'],['Muscle mass kg','muscleKg']];
+function byTypeRows(acts){
+  const by={}; acts.forEach(a=>{const t=by[a.type]||(by[a.type]={type:a.type,n:0,km:0,sec:0,elev:0,kcal:0}); t.n++; t.km+=a.km||0; t.sec+=a.sec||0; t.elev+=a.elev||0; t.kcal+=a.kcal||0;});
+  return Object.values(by).sort((a,b)=>b.n-a.n);
+}
+function weeklyRows(acts){
+  const wk={}; acts.forEach(a=>{ if(!a.start) return; const d=new Date(a.start.slice(0,10)); d.setDate(d.getDate()-((d.getDay()+6)%7)); const k=d.toISOString().slice(0,10);
+    const w=wk[k]||(wk[k]={d:k,n:0,km:0,sec:0,elev:0,kcal:0}); w.n++; w.km+=a.km||0; w.sec+=a.sec||0; w.elev+=a.elev||0; w.kcal+=a.kcal||0; });
+  return Object.values(wk).sort((a,b)=>a.d<b.d?-1:1);
+}
+const SUM_COLS=[['Activities','n'],['Distance km',r=>+r.km.toFixed(2)],['Time h',r=>+(r.sec/3600).toFixed(2)],['Elevation m',r=>Math.round(r.elev)],['Calories',r=>Math.round(r.kcal)]];
+const sleepDays = () => inRange(G.days).filter(d=>d.sleepH);
+const EXPORTS = {
+  activities: () => exportCSV('activities', currentActs(), ACT_COLS),
+  bytype:     () => exportCSV('activity_types', byTypeRows(inRange(G.activities)), [['Type',r=>label(r.type)],...SUM_COLS]),
+  weekly:     () => exportCSV('weekly_totals', weeklyRows(inRange(G.activities)), [['Week starting','d'],...SUM_COLS]),
+  health:     () => exportCSV('daily_health', inRange(G.days).filter(d=>Object.keys(d).length>1), HEALTH_COLS),
+  weights:    () => exportCSV('weigh_ins', inRange(G.weights), WEIGHT_COLS),
+  sleep:      () => exportCSV('sleep', sleepDays(), SLEEP_COLS),
+  records:    () => exportCSV('longest_efforts', bestRows(), [['Type',r=>label(r.type)],['Activities','n'],['Longest distance km',r=>r.l&&r.l.km],['Longest distance date',r=>r.l&&r.l.start],['Longest time',r=>r.d&&hms(r.d.sec)],['Longest time date',r=>r.d&&r.d.start],['Most climbing m',r=>r.e&&r.e.elev],['Most climbing date',r=>r.e&&r.e.start]], true),
+  allActs:    () => exportCSV('activities', G.activities, ACT_COLS, true),
+  allDays:    () => exportCSV('daily_health_and_sleep', G.days.filter(d=>Object.keys(d).length>1), [...HEALTH_COLS, ...SLEEP_COLS.slice(1)], true),
+  allWeights: () => exportCSV('weigh_ins', G.weights, WEIGHT_COLS, true),
+  json:       () => saveFile(`garmin_all_data_${today()}.json`, JSON.stringify(G, null, 1), 'application/json'),
+};
+const expBar = btns => `<div class="exp">${btns.map(([k,l])=>`<button class="dl" onclick="EXPORTS.${k}()">${l}</button>`).join('')}</div>`;
+function bestRows(){
+  const A=G.activities, best=(t,k)=>A.filter(a=>a.type===t&&a[k]).sort((a,b)=>b[k]-a[k])[0];
+  return [...new Set(A.map(a=>a.type))].map(t=>({type:t, n:A.filter(a=>a.type===t).length, l:best(t,'km'), d:best(t,'sec'), e:best(t,'elev')})).sort((a,b)=>b.n-a.n);
 }
 function more(){
-  const el=$('#more'), A=G.activities;
-  const best=(t,k,dir=1)=>A.filter(a=>a.type===t&&a[k]).sort((a,b)=>(b[k]-a[k])*dir)[0];
-  const types=[...new Set(A.map(a=>a.type))];
-  const rows=types.map(t=>{const l=best(t,'km'),e=best(t,'elev'),d=best(t,'sec');return `<tr><td>${label(t)}</td><td class="n">${l?fmt(l.km,1)+' km':'–'}</td><td class="n">${d?hms(d.sec):'–'}</td><td class="n">${e?fmt(e.elev)+' m':'–'}</td><td class="n">${A.filter(a=>a.type===t).length}</td></tr>`;}).join('');
-  el.innerHTML=`<div class="card"><h2>Longest efforts (all time)</h2><div class="tw"><table><thead><tr><th>Type</th><th class="n">Longest distance</th><th class="n">Longest time</th><th class="n">Most climbing</th><th class="n">Total count</th></tr></thead><tbody>${rows||'<tr><td colspan=5 class="mut">No activities</td></tr>'}</tbody></table></div></div>
+  const el=$('#more');
+  const rows=bestRows().map(r=>`<tr><td>${label(r.type)}</td><td class="n">${r.l?fmt(r.l.km,1)+' km':'–'}</td><td class="n">${r.d?hms(r.d.sec):'–'}</td><td class="n">${r.e?fmt(r.e.elev)+' m':'–'}</td><td class="n">${r.n}</td></tr>`).join('');
+  el.innerHTML=`<div class="card"><h2>Download all my data</h2><p class="mut" style="margin-top:0">Everything, all time. CSV files open in Excel, Google Sheets or Numbers.</p>
+   ${expBar([['allActs','All activities CSV'],['allDays','All daily health & sleep CSV'],['allWeights','All weigh-ins CSV'],['records','Longest efforts CSV'],['json','Everything (JSON)']])}</div>
+  <div class="card"><h2>Longest efforts (all time)</h2><div class="tw"><table><thead><tr><th>Type</th><th class="n">Longest distance</th><th class="n">Longest time</th><th class="n">Most climbing</th><th class="n">Total count</th></tr></thead><tbody>${rows||'<tr><td colspan=5 class="mut">No activities</td></tr>'}</tbody></table></div></div>
   <div class="card"><h2>Devices</h2>${G.devices.length?'<table><thead><tr><th>Device</th><th>Firmware</th></tr></thead><tbody>'+G.devices.map(d=>`<tr><td>${esc(d.name)}</td><td>${esc(d.fw||'')}</td></tr>`).join('')+'</tbody></table>':'<p class="mut">None saved.</p>'}</div>
   <div class="card"><h2>Sync</h2><p class="mut">Last synced ${G.generated?new Date(G.generated).toLocaleString():'–'}. ${G.activities.length} activities, ${G.days.length} days, ${G.weights.length} weigh-ins.${G.meta&&G.meta.complete===false?' Older history is still downloading.':''}</p>
    <div class="links">${REPO?`<a href="${REPO}/actions/workflows/sync.yml" target="_blank">Sync now / enter verification code</a><a href="${REPO}/actions" target="_blank">Sync history</a>`:''}</div>
