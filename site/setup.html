@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Set up your Garmin Dashboard</title>
+<meta name="theme-color" content="#0b7a75">
+<link rel="icon" href="icon-192.png">
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--ink:#14181f;--mut:#667085;--line:#e4e7ec;--acc:#0b7a75;--acc2:#e0f2f1;--warn:#b54708;--warnbg:#fef0e6;--ok:#067647;--err:#b42318;--errbg:#fdecea}
+@media (prefers-color-scheme:dark){:root{--bg:#0f1216;--card:#171b21;--ink:#e8eaed;--mut:#98a2b3;--line:#2a3039;--acc:#3cc4bd;--acc2:#12332f;--warn:#f79009;--warnbg:#2b1d0c;--ok:#47cd89;--err:#f97066;--errbg:#2d1212}}
+*{box-sizing:border-box}body{margin:0;font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--ink)}
+main{max-width:560px;margin:auto;padding:24px 16px 60px}h1{font-size:24px;margin:0 0 6px}h2{font-size:17px;margin:0 0 4px;display:flex;gap:10px;align-items:center}
+.mut{color:var(--mut)}.small{font-size:13px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px;margin-top:16px}
+.num{display:inline-flex;width:26px;height:26px;border-radius:50%;background:var(--acc);color:#fff;font-size:14px;align-items:center;justify-content:center;flex:none}
+label{display:block;font-weight:600;font-size:14px;margin:14px 0 4px}
+input{width:100%;font:inherit;font-size:16px;padding:11px 12px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink)}
+input:focus{outline:2px solid var(--acc);border-color:transparent}
+.row{display:flex;gap:8px}.row input{flex:1}
+button,.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;font:inherit;font-weight:600;padding:12px 16px;border-radius:8px;border:0;background:var(--acc);color:#fff;cursor:pointer;text-decoration:none}
+button.sec,.btn.sec{background:var(--acc2);color:var(--ink)}button:disabled{opacity:.5;cursor:default}.full{width:100%;margin-top:16px}
+.ok{color:var(--ok);font-weight:600}.hint{font-size:13px;color:var(--mut);margin-top:4px}
+.msg{border-radius:10px;padding:12px 14px;margin-top:14px;font-size:14px}.msg.warn{background:var(--warnbg)}.msg.err{background:var(--errbg);color:var(--err)}
+ol.steps{list-style:none;padding:0;margin:14px 0 0}ol.steps li{display:flex;gap:10px;padding:6px 0;color:var(--mut)}
+ol.steps li::before{content:'○';width:18px;text-align:center;flex:none}
+ol.steps li.run{color:var(--ink)}ol.steps li.run::before{content:'◐';color:var(--acc);animation:spin 1s linear infinite}
+ol.steps li.done{color:var(--ink)}ol.steps li.done::before{content:'✓';color:var(--ok);font-weight:700}
+ol.steps li.fail{color:var(--err)}ol.steps li.fail::before{content:'✕'}
+@keyframes spin{to{transform:rotate(360deg)}}
+.hide{display:none!important}details{margin-top:16px}summary{cursor:pointer;font-weight:600}
+.big{font-size:22px;letter-spacing:4px;text-align:center}
+a{color:var(--acc)}code{background:var(--acc2);padding:1px 5px;border-radius:4px;font-size:13px}
+</style>
+</head>
+<body>
+<main>
+<h1>Your own Garmin Dashboard</h1>
+<p class="mut">A private, encrypted dashboard of your Garmin Connect data that opens on any phone. Fill in this page once and it sets everything up for you in your own free GitHub account.</p>
+
+<!-- returning user -->
+<div class="card hide" id="returning">
+  <h2>Welcome back</h2>
+  <p class="mut small" id="retText"></p>
+  <a class="btn full" id="retOpen" href="#">Open my dashboard</a>
+  <button class="sec full" id="retStatus">Check sync status / enter a code</button>
+</div>
+
+<!-- step 1 -->
+<div class="card" id="s1">
+  <h2><span class="num">1</span>Connect GitHub</h2>
+  <p class="mut small">Your dashboard lives in your own GitHub account (free). No account? <a href="https://github.com/signup" target="_blank" rel="noopener">Create one</a>, then come back.</p>
+  <a class="btn sec full" target="_blank" rel="noopener"
+     href="https://github.com/settings/tokens/new?scopes=repo,workflow&description=Garmin%20Dashboard%20setup">Create a GitHub access key ↗</a>
+  <p class="hint">On that page: set <b>Expiration</b> to 7 days, scroll down, tap <b>Generate token</b>, then copy the key that starts with <code>ghp_</code>.</p>
+  <label for="token">Paste the access key</label>
+  <div class="row"><input id="token" type="password" autocomplete="off" placeholder="ghp_…" spellcheck="false"><button id="connect">Connect</button></div>
+  <div id="s1msg"></div>
+</div>
+
+<!-- step 2 -->
+<div class="card" id="s2" style="opacity:.5">
+  <h2><span class="num">2</span>Your Garmin login</h2>
+  <p class="mut small">Saved as encrypted secrets in <b>your</b> GitHub account. Encrypted here in your browser before it's sent — this page has no server.</p>
+  <label for="gEmail">Garmin Connect email</label>
+  <input id="gEmail" type="email" autocomplete="off" autocapitalize="off" spellcheck="false">
+  <label for="gPass">Garmin Connect password</label>
+  <input id="gPass" type="password" autocomplete="off">
+</div>
+
+<!-- step 3 -->
+<div class="card" id="s3" style="opacity:.5">
+  <h2><span class="num">3</span>Choose a dashboard passphrase</h2>
+  <p class="mut small">You'll type this to open your dashboard. It encrypts your data, so make it long and <b>different from your Garmin password</b>. Write it down — it can't be recovered.</p>
+  <label for="pp">Passphrase</label>
+  <div class="row"><input id="pp" type="text" autocomplete="off" autocapitalize="off" spellcheck="false"><button class="sec" id="suggest" type="button">Suggest</button></div>
+  <div class="hint" id="ppHint">At least 12 characters.</div>
+  <details><summary>Options</summary>
+    <label for="repoName">Dashboard name (part of its web address)</label>
+    <input id="repoName" value="garmin-dashboard" autocapitalize="off" spellcheck="false">
+    <label for="startDate">Download history from (optional)</label>
+    <input id="startDate" type="date">
+    <div class="hint">Leave empty to download everything since your first activity.</div>
+  </details>
+  <button class="full" id="go" disabled>Create my dashboard</button>
+</div>
+
+<!-- progress -->
+<div class="card hide" id="prog">
+  <h2>Setting up</h2>
+  <ol class="steps" id="steps"></ol>
+  <div id="progMsg"></div>
+  <div class="hide" id="mfaBox">
+    <div class="msg warn"><b>Garmin sent you a verification code</b> by email or text. Enter it here within a few minutes.</div>
+    <label for="mfa">Verification code</label>
+    <input id="mfa" class="big" inputmode="numeric" autocomplete="one-time-code" maxlength="8">
+    <button class="full" id="mfaGo">Continue</button>
+    <button class="sec full" id="mfaResend">I didn't get a code — try again</button>
+  </div>
+  <div class="hide" id="doneBox">
+    <div class="msg" style="background:var(--acc2)"><b>Your dashboard is live.</b> <span id="doneMore"></span></div>
+    <a class="btn full" id="openDash" href="#" target="_blank" rel="noopener">Open my dashboard ↗</a>
+    <p class="hint">Tip: open it in Chrome, tap ⋮ → <b>Add to Home screen</b> (iPhone: Share → Add to Home Screen). It syncs by itself every day. You can now delete the GitHub access key at <a href="https://github.com/settings/tokens" target="_blank" rel="noopener">github.com/settings/tokens</a>.</p>
+  </div>
+</div>
+
+<details class="small mut" style="margin-top:24px"><summary>How is this private?</summary>
+<p>This page talks only to GitHub, straight from your browser. It creates a copy of the dashboard in your GitHub account, stores your Garmin login as GitHub <b>secrets</b> (encrypted in your browser with your repository's public key before sending), and turns on GitHub Pages. The access key is kept only in this browser tab and is never saved.</p>
+<p>Each day GitHub Actions in your account downloads your Garmin data and encrypts it with your passphrase. The published page is public but unreadable without the passphrase; your phone decrypts it. The person who shared this page never sees your logins or data. This uses Garmin's unofficial API and isn't endorsed by Garmin.</p>
+</details>
+</main>
+
+<script src="nacl.min.js"></script>
+<script>
+'use strict';
+const $ = s => document.querySelector(s);
+const API = 'https://api.github.com';
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const ss = { get:k=>{try{return sessionStorage.getItem(k)}catch(e){return null}}, set:(k,v)=>{try{sessionStorage.setItem(k,v)}catch(e){}} };
+const ls = { get:k=>{try{return JSON.parse(localStorage.getItem(k))}catch(e){return null}}, set:(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}} };
+
+// Template repo = the repo hosting this page, or ?from=owner/repo
+const params = new URLSearchParams(location.search);
+const TEMPLATE = params.get('from') || (location.hostname.endsWith('.github.io')
+  ? `${location.hostname.split('.')[0]}/${location.pathname.split('/')[1]}` : '');
+
+let TOKEN = '', LOGIN = '', REPO = null; // REPO = {owner, name, branch}
+
+// ---------------------------------------------------------------- GitHub API
+async function gh(method, path, body, okStatuses = [200, 201, 202, 204]) {
+  const r = await fetch(API + path, {
+    method, headers: { 'Authorization': 'Bearer ' + TOKEN, 'Accept': 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28',
+                       ...(body ? {'Content-Type': 'application/json'} : {}) },
+    body: body ? JSON.stringify(body) : undefined });
+  let data = null; try { data = r.status === 204 ? null : await r.json(); } catch (e) {}
+  if (!okStatuses.includes(r.status)) { const e = new Error((data && data.message) || ('GitHub error ' + r.status)); e.status = r.status; e.data = data; throw e; }
+  return { status: r.status, data, headers: r.headers };
+}
+
+// ---------------------------------------------------------------- libsodium sealed box (crypto_box_seal) for GitHub secrets
+const B2_IV=[0x6a09e667f3bcc908n,0xbb67ae8584caa73bn,0x3c6ef372fe94f82bn,0xa54ff53a5f1d36f1n,0x510e527fade682d1n,0x9b05688c2b3e6c1fn,0x1f83d9abfb41bd6bn,0x5be0cd19137e2179n];
+const SIGMA=[[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15],[14,10,4,8,9,15,13,6,1,12,0,2,11,7,5,3],[11,8,12,0,5,2,15,13,10,14,3,6,7,1,9,4],[7,9,3,1,13,12,11,14,2,6,5,10,4,0,15,8],[9,0,5,7,2,4,10,15,14,1,11,12,6,8,3,13],[2,12,6,10,0,11,8,3,4,13,7,5,15,14,1,9],[12,5,1,15,14,13,4,10,0,7,6,3,9,2,8,11],[13,11,7,14,12,1,3,9,5,0,15,4,8,6,2,10],[6,15,14,9,11,3,0,8,12,2,13,7,1,4,10,5],[10,2,8,4,7,6,1,5,15,11,9,14,3,12,13,0]];
+const M64 = (1n << 64n) - 1n, rotr = (x, n) => ((x >> BigInt(n)) | (x << BigInt(64 - n))) & M64;
+function blake2b(data, outlen) {
+  const h = B2_IV.slice(); h[0] ^= 0x01010000n ^ BigInt(outlen);
+  let t = 0n; const blocks = Math.max(1, Math.ceil(data.length / 128));
+  for (let b = 0; b < blocks; b++) {
+    const part = data.subarray(b * 128, b * 128 + 128), chunk = new Uint8Array(128); chunk.set(part); t += BigInt(part.length);
+    const m = []; for (let i = 0; i < 16; i++) { let w = 0n; for (let j = 7; j >= 0; j--) w = (w << 8n) | BigInt(chunk[i * 8 + j]); m.push(w); }
+    const v = [...h, ...B2_IV]; v[12] ^= t & M64; v[13] ^= t >> 64n; if (b === blocks - 1) v[14] ^= M64;
+    const G = (a, b2, c, d, x, y) => { v[a]=(v[a]+v[b2]+x)&M64; v[d]=rotr(v[d]^v[a],32); v[c]=(v[c]+v[d])&M64; v[b2]=rotr(v[b2]^v[c],24);
+                                       v[a]=(v[a]+v[b2]+y)&M64; v[d]=rotr(v[d]^v[a],16); v[c]=(v[c]+v[d])&M64; v[b2]=rotr(v[b2]^v[c],63); };
+    for (let r = 0; r < 12; r++) { const s = SIGMA[r % 10];
+      G(0,4,8,12,m[s[0]],m[s[1]]); G(1,5,9,13,m[s[2]],m[s[3]]); G(2,6,10,14,m[s[4]],m[s[5]]); G(3,7,11,15,m[s[6]],m[s[7]]);
+      G(0,5,10,15,m[s[8]],m[s[9]]); G(1,6,11,12,m[s[10]],m[s[11]]); G(2,7,8,13,m[s[12]],m[s[13]]); G(3,4,9,14,m[s[14]],m[s[15]]); }
+    for (let i = 0; i < 8; i++) h[i] ^= v[i] ^ v[i + 8];
+  }
+  const out = new Uint8Array(outlen); for (let i = 0; i < outlen; i++) out[i] = Number((h[i >> 3] >> BigInt(8 * (i & 7))) & 0xffn); return out;
+}
+const b64e = u8 => btoa(String.fromCharCode(...u8)), b64d = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
+function sealedBox(message, publicKey) {
+  const eph = nacl.box.keyPair(), nonceIn = new Uint8Array(64); nonceIn.set(eph.publicKey); nonceIn.set(publicKey, 32);
+  const c = nacl.box(message, blake2b(nonceIn, 24), publicKey, eph.secretKey);
+  const out = new Uint8Array(32 + c.length); out.set(eph.publicKey); out.set(c, 32); return out;
+}
+
+// ---------------------------------------------------------------- UI helpers
+function msg(el, text, kind = 'err') { $(el).innerHTML = text ? `<div class="msg ${kind}">${text}</div>` : ''; }
+function enable(id, on) { const c = $(id); c.style.opacity = on ? 1 : .5; c.querySelectorAll('input,button').forEach(i => i.disabled = !on); }
+const STEP_NAMES = ['Copy the dashboard into your GitHub', 'Save your Garmin login (encrypted)', 'Turn on your dashboard web page', 'Log in to Garmin', 'Download your data', 'Publish your dashboard'];
+function initSteps(startAt = 0) { $('#steps').innerHTML = STEP_NAMES.map((n, i) => `<li data-i="${i}" class="${i < startAt ? 'done' : ''}">${n}</li>`).join(''); }
+function step(i, state, extra) { const li = $(`#steps li[data-i="${i}"]`); if (!li) return; li.className = state; if (extra != null) li.textContent = STEP_NAMES[i] + extra; }
+function saveSession() { ss.set('gd-token', TOKEN); if (REPO) ls.set('gd-repo', {...REPO}); }
+const dashUrl = () => REPO.name.toLowerCase() === `${REPO.owner.toLowerCase()}.github.io` ? `https://${REPO.name}/` : `https://${REPO.owner}.github.io/${REPO.name}/`;
+
+// ---------------------------------------------------------------- step 1: token
+async function connect() {
+  TOKEN = $('#token').value.trim(); msg('#s1msg', '');
+  if (!TOKEN) return msg('#s1msg', 'Paste the access key first.');
+  $('#connect').disabled = true; $('#connect').textContent = '…';
+  try {
+    const me = await gh('GET', '/user');
+    const scopeHdr = me.headers.get('x-oauth-scopes'), scopes = (scopeHdr || '').split(',').map(s => s.trim());
+    if (scopeHdr != null && TOKEN.startsWith('ghp_') && (!scopes.includes('repo') || !scopes.includes('workflow')))
+      throw new Error('This key is missing the <b>repo</b> and <b>workflow</b> permissions. Use the "Create a GitHub access key" button above — it ticks the right boxes.');
+    LOGIN = me.data.login; saveSession();
+    msg('#s1msg', `<span class="ok">✓ Connected as ${esc(LOGIN)}</span>`, '');
+    enable('#s2', true); enable('#s3', true); validate(); $('#gEmail').focus();
+  } catch (e) {
+    msg('#s1msg', e.status === 401 ? 'That key didn\'t work. Check you copied all of it, and that it hasn\'t expired.' : e.message);
+  } finally { $('#connect').disabled = false; $('#connect').textContent = 'Connect'; }
+}
+
+// ---------------------------------------------------------------- step 3: passphrase
+const WORDS = 'amber anchor apple arrow aspen atlas autumn badger bamboo barley beacon birch bison blaze bloom breeze brook canyon cactus cedar cherry cinder citrus clover cobalt comet coral cosmos coyote crane crystal cypress dawn delta desert dune eagle echo ember falcon fern fjord flint forest fossil fox frost galaxy garnet geyser ginger glacier granite grove harbor hazel heron hollow horizon island ivory jade jasmine juniper kayak kelp kestrel lagoon lantern lava lemon lily lotus lunar maple marble meadow mesa meteor mint mist monsoon moss nectar nebula north oasis ocean olive onyx opal orbit orchid otter owl palm pebble pepper pine planet plume prairie quartz quill rain raven reef ridge river robin saffron sage sandal sequoia shadow sierra silver sky slate solar sparrow spruce storm summit sun swift thistle thunder tide tiger timber topaz tulip tundra valley velvet violet volcano walnut willow winter wolf zephyr'.split(' ');
+function suggest() { const r = crypto.getRandomValues(new Uint32Array(5)); $('#pp').value = [...r].map(x => WORDS[x % WORDS.length]).join('-'); validate(); }
+function validate() {
+  const pp = $('#pp').value, e = $('#gEmail').value.trim(), p = $('#gPass').value, name = $('#repoName').value.trim();
+  const ppOk = pp.length >= 12 && pp !== p;
+  $('#ppHint').textContent = !pp ? 'At least 12 characters. Tap Suggest for a strong one.' : pp === p ? 'Must be different from your Garmin password.' : pp.length < 12 ? `${12 - pp.length} more characters.` : '✓ Good. Write it down somewhere safe.';
+  $('#go').disabled = !(LOGIN && /\S+@\S+/.test(e) && p && ppOk && /^[A-Za-z0-9._-]+$/.test(name));
+}
+
+// ---------------------------------------------------------------- setup flow
+async function waitFor(fn, tries = 30, ms = 2000) {
+  for (let i = 0; i < tries; i++) { try { const r = await fn(); if (r) return r; } catch (e) { if (e.status && ![404, 409, 422].includes(e.status)) throw e; } await sleep(ms); }
+  throw new Error('GitHub is taking longer than expected. Wait a minute and tap Create again — it carries on where it stopped.');
+}
+async function setSecret(name, value, key) {
+  const enc = sealedBox(new TextEncoder().encode(value), b64d(key.key));
+  await gh('PUT', `/repos/${REPO.owner}/${REPO.name}/actions/secrets/${name}`, { encrypted_value: b64e(enc), key_id: key.key_id });
+}
+async function createDashboard() {
+  const name = $('#repoName').value.trim();
+  $('#go').disabled = true; $('#prog').classList.remove('hide'); $('#doneBox').classList.add('hide'); $('#mfaBox').classList.add('hide'); msg('#progMsg', '');
+  initSteps(); $('#prog').scrollIntoView({behavior: 'smooth'});
+  let cur = 0;
+  try {
+    // 1. copy template (or reuse an existing copy with the same name)
+    step(cur = 0, 'run');
+    if (!TEMPLATE) throw new Error('This page doesn\'t know which dashboard to copy. Open it from the link you were given.');
+    let repo = null;
+    try { repo = (await gh('GET', `/repos/${LOGIN}/${name}`)).data; } catch (e) { if (e.status !== 404) throw e; }
+    if (repo) {
+      try { await gh('GET', `/repos/${LOGIN}/${name}/contents/.github/workflows/sync.yml`); }
+      catch (e) { throw new Error(`You already have a repository called "${esc(name)}" that isn't a Garmin Dashboard. Choose another name under Options.`); }
+    } else {
+      const t = (await gh('GET', `/repos/${TEMPLATE}`)).data;
+      if (!t.is_template) throw new Error(`The dashboard you were sent (${esc(TEMPLATE)}) isn't shared as a template yet. Ask the person who sent it to tick <b>Settings → Template repository</b>.`);
+      repo = (await gh('POST', `/repos/${TEMPLATE}/generate`, { owner: LOGIN, name, private: false, description: 'My private, encrypted Garmin dashboard' })).data;
+    }
+    REPO = { owner: LOGIN, name, branch: repo.default_branch || 'main' }; saveSession();
+    await waitFor(async () => (await gh('GET', `/repos/${LOGIN}/${name}/actions/workflows/sync.yml`)).data.id);
+    step(0, 'done');
+
+    // 2. secrets
+    step(cur = 1, 'run');
+    const key = (await gh('GET', `/repos/${LOGIN}/${name}/actions/secrets/public-key`)).data;
+    await setSecret('GARMIN_EMAIL', $('#gEmail').value.trim(), key);
+    await setSecret('GARMIN_PASSWORD', $('#gPass').value, key);
+    await setSecret('DATA_PASSPHRASE', $('#pp').value, key);
+    step(1, 'done');
+
+    // 3. GitHub Pages from Actions
+    step(cur = 2, 'run');
+    try { await gh('POST', `/repos/${LOGIN}/${name}/pages`, { build_type: 'workflow' }); }
+    catch (e) { if (e.status === 409) await gh('PUT', `/repos/${LOGIN}/${name}/pages`, { build_type: 'workflow' }); else throw e; }
+    step(2, 'done');
+
+    // clear sensitive fields from the page
+    $('#gPass').value = '';
+    // 4+. run the sync
+    await runSync({ start_date: $('#startDate').value || '' }, true);
+  } catch (e) {
+    step(cur, 'fail'); msg('#progMsg', esc(e.message).replace(/&lt;(\/?b)&gt;/g, '<$1>')); $('#go').disabled = false; validate();
+  }
+}
+
+async function dispatch(inputs = {}) {
+  const since = Date.now() - 10000;
+  const clean = Object.fromEntries(Object.entries(inputs).filter(([, v]) => v));
+  await waitFor(async () => { await gh('POST', `/repos/${REPO.owner}/${REPO.name}/actions/workflows/sync.yml/dispatches`, { ref: REPO.branch, inputs: clean }); return true; }, 10, 3000);
+  return waitFor(async () => {
+    const runs = (await gh('GET', `/repos/${REPO.owner}/${REPO.name}/actions/workflows/sync.yml/runs?per_page=5&event=workflow_dispatch`)).data.workflow_runs || [];
+    return runs.find(r => Date.parse(r.created_at) >= since);
+  }, 40, 3000);
+}
+
+async function runSync(inputs, fresh) {
+  if (!fresh) initSteps(3);
+  step(3, 'run', ' — starting…');
+  const run = await dispatch(inputs);
+  await watchRun(run);
+}
+
+async function annotations(job) {
+  try { return (await gh('GET', `/repos/${REPO.owner}/${REPO.name}/check-runs/${job.id}/annotations`)).data || []; } catch (e) { return []; }
+}
+
+async function watchRun(run) {
+  const started = Date.now();
+  while (true) {
+    const r = (await gh('GET', `/repos/${REPO.owner}/${REPO.name}/actions/runs/${run.id}`)).data;
+    const jobs = (await gh('GET', `/repos/${REPO.owner}/${REPO.name}/actions/runs/${run.id}/jobs`)).data.jobs || [];
+    const job = jobs[0], steps = (job && job.steps) || [];
+    const st = n => steps.find(s => s.name === n) || {};
+    const sync = st('Sync from Garmin'), pub = st('Publish page');
+    const mins = Math.floor((Date.now() - Date.parse(r.run_started_at || r.created_at)) / 60000);
+    if (r.status !== 'completed') {
+      if (sync.status === 'in_progress') { step(3, 'done', ''); step(4, 'run', mins >= 1 ? ` — ${mins} min (the first one can take up to an hour)` : ' — this can take a while'); }
+      else if (sync.status === 'completed') { step(3, 'done', ''); step(4, 'done', ''); step(5, 'run', ''); }
+      else step(3, 'run', r.status === 'queued' ? ' — waiting for GitHub…' : ' — starting…');
+      await sleep(Date.now() - started > 120000 ? 15000 : 5000);
+      continue;
+    }
+    const notes = job ? await annotations(job) : [];
+    const needsCode = notes.some(a => /verification code/i.test(a.title || '') || /verification code/i.test(a.message || ''));
+    if (needsCode) {
+      step(3, 'run', ' — waiting for your code'); step(4, '', ''); step(5, '', '');
+      $('#mfaBox').classList.remove('hide'); $('#mfa').value = ''; $('#mfa').focus(); $('#mfaBox').scrollIntoView({behavior: 'smooth', block: 'center'});
+      return;
+    }
+    if (r.conclusion === 'success' && pub.conclusion === 'success') {
+      ['3', '4', '5'].forEach(i => step(+i, 'done', ''));
+      const more = st('Keep downloading history').conclusion === 'success';
+      $('#doneMore').textContent = more ? 'Older history keeps downloading in the background — it fills in over the next few hours.' : 'All your history is in.';
+      $('#openDash').href = dashUrl(); $('#doneBox').classList.remove('hide'); $('#doneBox').scrollIntoView({behavior: 'smooth', block: 'center'});
+      showReturning();
+      return;
+    }
+    const failed = steps.find(s => s.conclusion === 'failure');
+    const errNote = notes.find(a => a.annotation_level === 'failure' && !/exit code/i.test(a.message || '')) || notes.find(a => a.annotation_level === 'failure');
+    const i = failed && failed.name === 'Sync from Garmin' ? (sync.started_at ? 4 : 3) : failed && /Pages|page/.test(failed.name) ? 5 : 4;
+    step(i, 'fail');
+    msg('#progMsg', `${esc(errNote ? errNote.message : 'The sync stopped with an error.')}<br><br><a href="${r.html_url}" target="_blank" rel="noopener">See details on GitHub ↗</a> · <a href="#" id="retry">Try again</a>`);
+    $('#retry').onclick = ev => { ev.preventDefault(); msg('#progMsg', ''); runSync({}, false).catch(showErr); };
+    return;
+  }
+}
+function showErr(e) { msg('#progMsg', esc(e.message)); }
+
+async function submitCode() {
+  const code = $('#mfa').value.replace(/\D/g, '');
+  if (code.length < 4) return;
+  $('#mfaBox').classList.add('hide'); step(3, 'run', ' — checking code…');
+  try { await runSync({ mfa_code: code }, true); } catch (e) { showErr(e); }
+}
+
+// ---------------------------------------------------------------- returning visitor
+function showReturning() {
+  const saved = ls.get('gd-repo'); if (!saved) return;
+  REPO = REPO || saved;
+  $('#returning').classList.remove('hide');
+  $('#retText').textContent = `Your dashboard: ${dashUrl().replace('https://', '')}`;
+  $('#retOpen').href = dashUrl();
+}
+async function checkStatus() {
+  if (!TOKEN) { $('#s1').scrollIntoView({behavior: 'smooth'}); msg('#s1msg', 'Paste a GitHub access key above first (an earlier one works if it hasn\'t expired), then tap this again.', 'warn'); return; }
+  $('#prog').classList.remove('hide'); $('#doneBox').classList.add('hide'); msg('#progMsg', ''); initSteps(3);
+  try {
+    const runs = (await gh('GET', `/repos/${REPO.owner}/${REPO.name}/actions/workflows/sync.yml/runs?per_page=1`)).data.workflow_runs || [];
+    if (!runs.length) return runSync({}, false);
+    await watchRun(runs[0]);
+  } catch (e) { showErr(e); }
+}
+
+// ---------------------------------------------------------------- wire up
+$('#connect').onclick = connect;
+$('#token').onkeydown = e => { if (e.key === 'Enter') connect(); };
+$('#suggest').onclick = suggest;
+['#gEmail', '#gPass', '#pp', '#repoName'].forEach(s => $(s).oninput = validate);
+$('#go').onclick = createDashboard;
+$('#mfaGo').onclick = submitCode;
+$('#mfa').onkeydown = e => { if (e.key === 'Enter') submitCode(); };
+$('#mfaResend').onclick = () => { $('#mfaBox').classList.add('hide'); runSync({}, true).catch(showErr); };
+$('#retStatus').onclick = checkStatus;
+enable('#s2', false); enable('#s3', false);
+const savedTok = ss.get('gd-token'); if (savedTok) { $('#token').value = savedTok; connect(); }
+showReturning();
+</script>
+</body>
+</html>

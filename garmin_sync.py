@@ -61,11 +61,16 @@ DAILY_ENDPOINTS = [            # (key, method, args) - one call each per day
 _secrets_to_redact = []
 
 
-def log(msg):
+def redact(msg):
     msg = str(msg)
     for s in _secrets_to_redact:
         if s and len(s) >= 4:
             msg = msg.replace(s, "***")
+    return msg
+
+
+def log(msg):
+    msg = redact(msg)
     print(f"[{dt.datetime.now(dt.timezone.utc):%H:%M:%S}] {msg}", flush=True)
 
 
@@ -197,7 +202,12 @@ def connect(passphrase):
             raise SystemExit("A verification code was entered, but there is no login waiting for one. "
                              "Run the workflow again WITHOUT a code first; Garmin will then send you a new code.")
         api = Garmin()
-        api.resume_login(json.loads(state), mfa_code)
+        try:
+            api.resume_login(json.loads(state), mfa_code)
+        except Exception as e:
+            (STATE / "mfa_pending.enc").unlink(missing_ok=True)
+            raise SystemExit("Garmin didn't accept that verification code (it may have expired). "
+                             f"Start again without a code to get a new one. ({short_err(e)})")
         (STATE / "mfa_pending.enc").unlink(missing_ok=True)
         log("2-step verification accepted.")
         persist_tokens(api, passphrase)
@@ -538,4 +548,20 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except SystemExit as e:
+        if isinstance(e.code, str):          # our own friendly messages
+            e.code = redact(e.code)
+            gh(f"::error title=Sync problem::{e.code}")
+            summary("## Sync problem\n\n" + e.code)
+            print(e.code, file=sys.stderr)
+            sys.exit(1)
+        raise
+    except Exception as e:
+        text = redact(short_err(e))
+        if any(k in text for k in ("401", "403", "Unauthorized", "credentials", "password", "Authentication")):
+            text = "Garmin rejected the login. Check GARMIN_EMAIL and GARMIN_PASSWORD. " + text
+        gh(f"::error title=Sync problem::{text}")
+        summary("## Sync problem\n\n" + text)
+        raise

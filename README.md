@@ -11,7 +11,19 @@ What you get: activities (distance, pace, heart rate, elevation, training effect
 
 ---
 
-## Setup (about 10 minutes, works on a phone)
+## Easiest setup: one page
+
+Open the setup page, fill in the boxes, and it does everything for you: it creates your copy, saves your Garmin login as encrypted secrets, turns on the web page and runs the first sync. If you use 2-step verification, it also asks for your Garmin code.
+
+**`https://<owner>.github.io/<repo>/setup.html`** (for this repository: the address of its dashboard + `setup.html`)
+
+You'll need a free GitHub account. The page walks you through creating a GitHub access key, which is how it gets permission to set things up in your account. The key stays in your browser tab and is never sent anywhere except GitHub. You can delete it afterwards.
+
+> For the setup page to work, the repository owner must tick **Settings → General → Template repository**.
+
+---
+
+## Manual setup (about 10 minutes, works on a phone)
 
 You need a free GitHub account: https://github.com/signup
 
