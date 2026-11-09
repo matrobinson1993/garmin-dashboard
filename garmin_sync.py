@@ -334,6 +334,7 @@ def daily_row(date, rec):
 
 def activity_row(a):
     t = a.get("activityType") or {}
+    zones = [round(a.get(f"hrTimeInZone_{i}") or 0) for i in range(1, 6)]
     row = {
         "id": a.get("activityId"), "name": a.get("activityName"), "type": t.get("typeKey"),
         "start": a.get("startTimeLocal"),
@@ -348,6 +349,14 @@ def activity_row(a):
         "anaerobicTE": a.get("anaerobicTrainingEffect"), "vo2": a.get("vO2MaxValue"), "steps": a.get("steps"),
         "lat": r(a.get("startLatitude"), 4), "lon": r(a.get("startLongitude"), 4),
         "loc": a.get("locationName"), "desc": a.get("description"),
+        # extra detail (present for most watch-recorded activities)
+        "tl": r(a.get("activityTrainingLoad"), 1),
+        "teLabel": a.get("trainingEffectLabel"),
+        "maxSpeed": a.get("maxSpeed"),
+        "stride": r(a.get("avgStrideLength"), 1),
+        "gct": r(a.get("avgGroundContactTime"), 0),
+        "vo": r(a.get("avgVerticalOscillation"), 1),
+        "z": zones if any(zones) else None,
     }
     return {k: v for k, v in row.items() if v is not None}
 
@@ -389,8 +398,13 @@ def load_store(passphrase):
 # ---------------------------------------------------------------------------
 # Sync steps
 # ---------------------------------------------------------------------------
+ACTIVITY_FIELDS_VERSION = 2   # bump when activity_row() gains fields, to refresh all activities once
+
+
 def sync_activities(call, store):
     known = {a["id"]: a for a in store["activities"]}
+    if store["meta"].get("activity_fields") != ACTIVITY_FIELDS_VERSION:
+        store["meta"]["activities_complete"] = False   # page through everything once
     new, start = 0, 0
     while True:
         batch = call("get_activities", start, 100) or []
@@ -406,6 +420,7 @@ def sync_activities(call, store):
             break
         start += 100
     store["meta"]["activities_complete"] = True
+    store["meta"]["activity_fields"] = ACTIVITY_FIELDS_VERSION
     store["activities"] = sorted(known.values(), key=lambda a: a.get("start") or "", reverse=True)
     log(f"Activities: {len(store['activities'])} total ({new} new).")
 
