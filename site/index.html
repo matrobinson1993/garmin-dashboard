@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Garmin Dashboard</title>
+<meta name="theme-color" content="#0b7a75">
+<meta name="robots" content="noindex">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--ink:#14181f;--mut:#667085;--line:#e4e7ec;--acc:#0b7a75;--acc2:#e0f2f1;--warn:#b54708}
+@media (prefers-color-scheme:dark){:root{--bg:#0f1216;--card:#171b21;--ink:#e8eaed;--mut:#98a2b3;--line:#2a3039;--acc:#3cc4bd;--acc2:#12332f}}
+*{box-sizing:border-box}body{margin:0;font:14px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--ink)}
+header{padding:20px 24px 8px;display:flex;flex-wrap:wrap;gap:12px;align-items:baseline;justify-content:space-between}
+h1{font-size:22px;margin:0}h2{font-size:15px;margin:0 0 12px}.mut{color:var(--mut)}
+nav{display:flex;gap:4px;padding:0 24px;border-bottom:1px solid var(--line);overflow-x:auto}
+nav button{border:0;background:none;color:var(--mut);padding:10px 14px;font:inherit;cursor:pointer;border-bottom:2px solid transparent;white-space:nowrap}
+nav button.on{color:var(--ink);border-color:var(--acc);font-weight:600}
+main{padding:20px 24px;max-width:1300px;margin:auto}section{display:none}section.on{display:block}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:12px;margin-bottom:16px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 16px;margin-bottom:16px}
+.tile{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 14px}
+.tile b{display:block;font-size:22px;font-variant-numeric:tabular-nums}.tile span{color:var(--mut);font-size:12px}
+.bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px}
+select,input{font:inherit;padding:6px 8px;border:1px solid var(--line);border-radius:6px;background:var(--card);color:var(--ink)}
+.seg button{font:inherit;border:1px solid var(--line);background:var(--card);color:var(--mut);padding:5px 10px;cursor:pointer}
+.seg button:first-child{border-radius:6px 0 0 6px}.seg button:last-child{border-radius:0 6px 6px 0}.seg button+button{border-left:0}
+.seg button.on{background:var(--acc2);color:var(--ink)}
+table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+th,td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--line);white-space:nowrap}
+th{color:var(--mut);font-weight:500;cursor:pointer;user-select:none;position:sticky;top:0;background:var(--card)}
+td.n,th.n{text-align:right}tbody tr{cursor:pointer}tbody tr:hover{background:var(--acc2)}
+.tw{max-height:70vh;overflow:auto}
+svg{display:block;width:100%;overflow:visible}svg text{fill:var(--mut);font-size:11px}
+.tip{position:fixed;pointer-events:none;background:var(--ink);color:var(--bg);padding:6px 8px;border-radius:6px;font-size:12px;display:none;z-index:9}
+.charts{display:grid;grid-template-columns:repeat(auto-fit,minmax(420px,1fr));gap:16px}
+.charts .card{margin:0}dialog{border:1px solid var(--line);border-radius:12px;background:var(--card);color:var(--ink);max-width:640px;width:92vw}
+dialog::backdrop{background:#0006}dl{display:grid;grid-template-columns:max-content 1fr;gap:4px 16px;margin:0}dt{color:var(--mut)}dd{margin:0}
+a{color:var(--acc)}.pill{display:inline-block;padding:1px 8px;border-radius:99px;background:var(--acc2);font-size:12px}
+.empty{padding:40px;text-align:center;color:var(--mut)}
+@media (max-width:600px){.charts{grid-template-columns:1fr}main,header{padding-left:12px;padding-right:12px}nav{padding:0 4px}h1{font-size:19px}.grid{grid-template-columns:repeat(2,1fr)}.tile b{font-size:19px}}
+svg{touch-action:pan-y}
+#lock{position:fixed;inset:0;background:var(--bg);display:flex;align-items:center;justify-content:center;padding:20px;z-index:20}
+#lock form{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:24px;width:100%;max-width:380px}
+#lock h1{margin-bottom:6px}#lock input[type=password]{width:100%;padding:12px;font-size:16px;margin:14px 0 10px}
+#lock button,.btn{width:100%;padding:12px;font:inherit;font-weight:600;border:0;border-radius:8px;background:var(--acc);color:#fff;cursor:pointer}
+#lock label{display:flex;gap:8px;align-items:center;color:var(--mut);margin-bottom:14px}#lockErr{color:var(--warn);min-height:20px;margin:8px 0 0}
+.links a{display:inline-block;margin:0 14px 8px 0}
+</style>
+</head>
+<body>
+<div id="lock"><form id="lockForm"><h1>Garmin Dashboard</h1><div class="mut">Enter your data passphrase to open your data. It is decrypted on this device only.</div>
+<input type="password" id="pass" autocomplete="current-password" placeholder="Passphrase" required>
+<label><input type="checkbox" id="remember"> Remember on this device</label>
+<button id="unlockBtn">Unlock</button><p id="lockErr"></p></form></div>
+<header><div><h1 id="title">My Garmin Data</h1><div class="mut" id="sub"></div></div>
+<div class="seg" id="range"><button data-d="30">30d</button><button data-d="90">90d</button><button data-d="365" class="on">1y</button><button data-d="0">All</button></div></header>
+<nav id="tabs"><button data-t="overview" class="on">Overview</button><button data-t="health">Health trends</button><button data-t="sleep">Sleep</button><button data-t="activities">Activities</button><button data-t="more">More</button></nav>
+<main>
+<section id="overview" class="on"></section>
+<section id="health"></section>
+<section id="sleep"></section>
+<section id="activities"></section>
+<section id="more"></section>
+</main>
+<div class="tip" id="tip"></div>
+<dialog id="dlg"><div id="dlgBody"></div><p style="text-align:right;margin:12px 0 0"><button onclick="dlg.close()">Close</button></p></dialog>
+<script>
+let G = null;
+const $ = s => document.querySelector(s);
+const tip = $('#tip');
+let RANGE = 365;
+const fmt = (v, d=0) => v==null||isNaN(v) ? '–' : Number(v).toLocaleString(undefined,{maximumFractionDigits:d,minimumFractionDigits:d});
+const hms = s => { if(!s) return '–'; s=Math.round(s); const h=Math.floor(s/3600), m=Math.floor(s%3600/60), x=s%60; return (h?h+':'+String(m).padStart(2,'0'):m)+':'+String(x).padStart(2,'0'); };
+const label = t => (t||'other').replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase());
+const esc = s => String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const cutoff = () => { if(!RANGE) return '0000'; const d=new Date(); d.setDate(d.getDate()-RANGE); return d.toISOString().slice(0,10); };
+const inRange = arr => arr.filter(r => (r.d||r.start||'') >= cutoff());
+const avg = a => { a=a.filter(v=>v!=null); return a.length ? a.reduce((x,y)=>x+y,0)/a.length : null; };
+const sum = a => a.reduce((x,y)=>x+(y||0),0);
+function pace(a){ if(!a.speed||!a.km) return '–'; if(/swim/.test(a.type||'')){ const s=100/a.speed; return Math.floor(s/60)+':'+String(Math.round(s%60)).padStart(2,'0')+' /100m'; } if(/run|walk|hik/.test(a.type||'')){ const s=1000/a.speed; return Math.floor(s/60)+':'+String(Math.round(s%60)).padStart(2,'0')+' /km'; } return fmt(a.speed*3.6,1)+' km/h'; }
+
+// ---- simple SVG chart --------------------------------------------------
+function chart(el, rows, key, o={}) {
+  const pts = rows.filter(r => r[key]!=null).map(r => ({d:r.d, v:r[key]}));
+  if (!pts.length) { el.innerHTML = '<div class="empty">No data in this range</div>'; return; }
+  const W=Math.max(300, Math.min(700, el.clientWidth||600)), H=o.h||180, L=40, R=8, T=10, B=22;
+  const t0=+new Date(pts[0].d), t1=+new Date(pts[pts.length-1].d)||t0+1, span=Math.max(t1-t0, 864e5);
+  let lo=o.min??Math.min(...pts.map(p=>p.v)), hi=Math.max(...pts.map(p=>p.v), o.goal||-Infinity);
+  if (o.bar) lo=0; if (hi===lo){hi+=1;lo-=1;} const pad=(hi-lo)*.08; if(!o.bar&&o.min==null) lo-=pad; hi+=pad;
+  const x = d => L+(W-L-R)*((+new Date(d))-t0)/span, y = v => T+(H-T-B)*(1-(v-lo)/(hi-lo));
+  let s = `<svg viewBox="0 0 ${W} ${H}">`;
+  for (let i=0;i<=3;i++){ const v=lo+(hi-lo)*i/3, yy=y(v); s+=`<line x1="${L}" x2="${W-R}" y1="${yy}" y2="${yy}" stroke="var(--line)"/><text x="${L-6}" y="${yy+4}" text-anchor="end">${fmt(v, Math.abs(hi-lo)<10?1:0)}</text>`; }
+  const ticks=5; for(let i=0;i<=ticks;i++){ const t=new Date(t0+span*i/ticks); s+=`<text x="${L+(W-L-R)*i/ticks}" y="${H-4}" text-anchor="middle">${t.toLocaleDateString(undefined,{month:'short',year:span>2e10?'2-digit':undefined,day:span>2e10?undefined:'numeric'})}</text>`; }
+  if (o.goal) s+=`<line x1="${L}" x2="${W-R}" y1="${y(o.goal)}" y2="${y(o.goal)}" stroke="var(--warn)" stroke-dasharray="4 4"/>`;
+  const col = o.color||'var(--acc)';
+  if (o.bar) { const bw=Math.max(1,(W-L-R)/(span/864e5)*.75); pts.forEach(p=>s+=`<rect x="${x(p.d)-bw/2}" y="${y(p.v)}" width="${bw}" height="${y(lo)-y(p.v)}" fill="${col}" opacity=".75"/>`); }
+  else {
+    s+=`<polyline fill="none" stroke="${col}" stroke-width="1.2" opacity="${pts.length>60?.35:1}" points="${pts.map(p=>x(p.d)+','+y(p.v)).join(' ')}"/>`;
+    if (pts.length>60) { const k=7, ma=pts.map((p,i)=>{const w=pts.slice(Math.max(0,i-k+1),i+1);return x(p.d)+','+y(avg(w.map(q=>q.v)));}); s+=`<polyline fill="none" stroke="${col}" stroke-width="2" points="${ma.join(' ')}"/>`; }
+  }
+  s+=`<line class="hx" y1="${T}" y2="${H-B}" stroke="var(--mut)" opacity="0"/><rect x="${L}" y="0" width="${W-L-R}" height="${H}" fill="transparent"/></svg>`;
+  el.innerHTML = s;
+  const svg=el.querySelector('svg'), hx=svg.querySelector('.hx');
+  svg.onpointermove = svg.onpointerdown = e => { const b=svg.getBoundingClientRect(), px=(e.clientX-b.left)/b.width*W, t=t0+(px-L)/(W-L-R)*span;
+    let best=pts[0]; for(const p of pts) if(Math.abs(+new Date(p.d)-t)<Math.abs(+new Date(best.d)-t)) best=p;
+    hx.setAttribute('x1',x(best.d)); hx.setAttribute('x2',x(best.d)); hx.setAttribute('opacity',.6);
+    tip.style.display='block'; tip.style.left=(e.clientX+12)+'px'; tip.style.top=(e.clientY-28)+'px';
+    tip.textContent=`${best.d}: ${fmt(best.v, o.dec??0)}${o.unit||''}`; };
+  svg.onpointerleave = () => { tip.style.display='none'; hx.setAttribute('opacity',0); };
+}
+function chartCard(title, rows, key, o={}) {
+  const c=document.createElement('div'); c.className='card';
+  const vals=rows.map(r=>r[key]).filter(v=>v!=null);
+  c.innerHTML=`<h2>${title} <span class="mut" style="font-weight:400">· avg ${fmt(avg(vals),o.dec??0)}${o.unit||''}</span></h2><div></div>`;
+  chart(c.lastChild, rows, key, o); return c;
+}
+const tile = (v, l) => `<div class="tile"><b>${v}</b><span>${l}</span></div>`;
+
+// ---- tabs ----------------------------------------------------------------
+function overview(){
+  const days=inRange(G.days), acts=inRange(G.activities), el=$('#overview');
+  const all=G.activities;
+  el.innerHTML = `<div class="grid">
+    ${tile(fmt(acts.length),'activities')}${tile(fmt(sum(acts.map(a=>a.km)),0)+' km','distance')}
+    ${tile(fmt(sum(acts.map(a=>a.sec))/3600,0)+' h','activity time')}${tile(fmt(avg(days.map(d=>d.steps))),'avg daily steps')}
+    ${tile(fmt(avg(days.map(d=>d.rhr))),'avg resting HR')}${tile(fmt(avg(days.map(d=>d.sleepH)),1)+' h','avg sleep')}
+    ${tile(fmt(avg(days.map(d=>d.hrv))),'avg overnight HRV')}${tile(fmt(avg(days.map(d=>d.stress))),'avg stress')}</div>
+    <div class="charts" id="ovc"></div>
+    <div class="card" style="margin-top:16px"><h2>By activity type</h2><div class="tw"><table><thead><tr><th>Type</th><th class="n">Count</th><th class="n">Distance km</th><th class="n">Time h</th><th class="n">Elevation m</th><th class="n">Calories</th></tr></thead><tbody id="bytype"></tbody></table></div></div>`;
+  const by={}; acts.forEach(a=>{const t=by[a.type]||(by[a.type]={n:0,km:0,sec:0,elev:0,kcal:0}); t.n++; t.km+=a.km||0; t.sec+=a.sec||0; t.elev+=a.elev||0; t.kcal+=a.kcal||0;});
+  $('#bytype').innerHTML = Object.entries(by).sort((a,b)=>b[1].n-a[1].n).map(([k,t])=>`<tr onclick="filterType('${esc(k)}')"><td>${label(k)}</td><td class="n">${t.n}</td><td class="n">${fmt(t.km,1)}</td><td class="n">${fmt(t.sec/3600,1)}</td><td class="n">${fmt(t.elev)}</td><td class="n">${fmt(t.kcal)}</td></tr>`).join('') || '<tr><td colspan=6 class="mut">No activities in range</td></tr>';
+  // weekly distance
+  const wk={}; acts.forEach(a=>{ const d=new Date(a.start.slice(0,10)); d.setDate(d.getDate()-((d.getDay()+6)%7)); const k=d.toISOString().slice(0,10); wk[k]=(wk[k]||0)+(a.km||0); });
+  const wrows=Object.keys(wk).sort().map(k=>({d:k,km:+wk[k].toFixed(1)}));
+  const c=$('#ovc'); c.append(chartCard('Weekly distance',wrows,'km',{bar:1,unit:' km',dec:1}));
+  c.append(chartCard('Daily steps',days,'steps',{bar:1}));
+}
+function health(){
+  const days=inRange(G.days), el=$('#health'); el.innerHTML='<div class="charts"></div>'; const c=el.firstChild;
+  [['Resting heart rate','rhr',{unit:' bpm'}],['Overnight HRV','hrv',{unit:' ms'}],['Average stress','stress',{}],
+   ['Body Battery (daily high)','bbHigh',{}],['Training readiness','readiness',{}],['VO₂ max','vo2',{dec:1}],
+   ['Weight','kg',{unit:' kg',dec:1}],['Intensity minutes','intensity',{bar:1}],['Active calories','activeKcal',{bar:1}],
+   ['Floors climbed','floors',{bar:1}],['SpO₂','spo2',{unit:'%'}],['Waking respiration','resp',{unit:' brpm',dec:1}]]
+   .forEach(([t,k,o])=>{ if(G.days.some(d=>d[k]!=null)) c.append(chartCard(t,days,k,o)); });
+  if(!c.children.length) el.innerHTML='<div class="empty">No daily health data yet.</div>';
+}
+function sleep(){
+  const days=inRange(G.days).filter(d=>d.sleepH), el=$('#sleep');
+  el.innerHTML=`<div class="grid">${tile(fmt(avg(days.map(d=>d.sleepH)),1)+' h','avg sleep')}${tile(fmt(avg(days.map(d=>d.deepH)),1)+' h','avg deep')}${tile(fmt(avg(days.map(d=>d.remH)),1)+' h','avg REM')}${tile(fmt(avg(days.map(d=>d.sleepScore))),'avg sleep score')}</div><div class="charts"></div>
+  <div class="card" style="margin-top:16px"><h2>Recent nights</h2><div class="tw"><table><thead><tr><th>Date</th><th class="n">Total</th><th class="n">Deep</th><th class="n">Light</th><th class="n">REM</th><th class="n">Awake</th><th class="n">Score</th></tr></thead><tbody>${
+   days.slice().reverse().slice(0,120).map(d=>`<tr><td>${d.d}</td><td class="n">${fmt(d.sleepH,1)}</td><td class="n">${fmt(d.deepH,1)}</td><td class="n">${fmt(d.lightH,1)}</td><td class="n">${fmt(d.remH,1)}</td><td class="n">${fmt(d.awakeH,1)}</td><td class="n">${fmt(d.sleepScore)}</td></tr>`).join('')}</tbody></table></div></div>`;
+  const c=el.querySelector('.charts');
+  c.append(chartCard('Sleep duration',days,'sleepH',{unit:' h',dec:1,goal:8}));
+  c.append(chartCard('Sleep score',days,'sleepScore',{}));
+  c.append(chartCard('Deep sleep',days,'deepH',{unit:' h',dec:1}));
+  c.append(chartCard('REM sleep',days,'remH',{unit:' h',dec:1}));
+}
+let SORT={k:'start',dir:-1}, TYPE='', Q='';
+function filterType(t){ TYPE=t; show('activities'); }
+function activities(){
+  const el=$('#activities'), types=[...new Set(G.activities.map(a=>a.type))].sort();
+  if(!el.innerHTML){
+    el.innerHTML=`<div class="bar"><select id="ftype"><option value="">All types</option>${types.map(t=>`<option value="${esc(t)}">${label(t)}</option>`).join('')}</select>
+      <input id="q" placeholder="Search name or location" style="flex:1;min-width:160px"><button id="csv">Export CSV</button><span class="mut" id="cnt"></span></div>
+      <div class="card"><div class="tw"><table><thead><tr>
+      ${[['start','Date'],['name','Name'],['type','Type'],['km','Km','n'],['sec','Time','n'],['speed','Pace/speed','n'],['avgHr','Avg HR','n'],['elev','Elev m','n'],['kcal','kcal','n'],['aerobicTE','TE','n']].map(([k,l,c])=>`<th data-k="${k}" class="${c||''}">${l}</th>`).join('')}
+      </tr></thead><tbody id="atb"></tbody></table></div></div>`;
+    $('#ftype').onchange=e=>{TYPE=e.target.value; activities();};
+    $('#q').oninput=e=>{Q=e.target.value.toLowerCase(); activities();};
+    el.querySelectorAll('th').forEach(th=>th.onclick=()=>{const k=th.dataset.k; SORT={k,dir:SORT.k===k?-SORT.dir:-1}; activities();});
+    $('#csv').onclick=()=>downloadCSV(currentActs());
+  }
+  $('#ftype').value=TYPE;
+  const rows=currentActs();
+  $('#cnt').textContent=`${rows.length} activities`;
+  $('#atb').innerHTML=rows.slice(0,2000).map(a=>`<tr data-id="${a.id}"><td>${esc((a.start||'').slice(0,16))}</td><td>${esc(a.name)}</td><td><span class="pill">${label(a.type)}</span></td><td class="n">${fmt(a.km,2)}</td><td class="n">${hms(a.sec)}</td><td class="n">${pace(a)}</td><td class="n">${fmt(a.avgHr)}</td><td class="n">${fmt(a.elev)}</td><td class="n">${fmt(a.kcal)}</td><td class="n">${fmt(a.aerobicTE,1)}</td></tr>`).join('') || '<tr><td colspan=10 class="mut">No activities</td></tr>';
+  $('#atb').querySelectorAll('tr[data-id]').forEach(tr=>tr.onclick=()=>detail(+tr.dataset.id));
+}
+function currentActs(){
+  return inRange(G.activities).filter(a=>(!TYPE||a.type===TYPE)&&(!Q||((a.name||'')+' '+(a.loc||'')).toLowerCase().includes(Q)))
+    .sort((a,b)=>{const x=a[SORT.k],y=b[SORT.k]; return (x==null)-(y==null) || (x<y?-1:x>y?1:0)*SORT.dir;});
+}
+function detail(id){
+  const a=G.activities.find(x=>x.id===id); if(!a) return;
+  const f=[['Date',a.start],['Type',label(a.type)],['Distance',a.km!=null?fmt(a.km,2)+' km':null],['Duration',hms(a.sec)],['Moving time',a.movSec?hms(a.movSec):null],['Pace / speed',pace(a)],
+   ['Avg / max HR',a.avgHr?`${fmt(a.avgHr)} / ${fmt(a.maxHr)} bpm`:null],['Elevation gain',a.elev!=null?a.elev+' m':null],['Calories',a.kcal],['Cadence',a.cadence?fmt(a.cadence):null],['Avg power',a.power?fmt(a.power)+' W':null],
+   ['Training effect',a.aerobicTE?`${fmt(a.aerobicTE,1)} aerobic`+(a.anaerobicTE?` / ${fmt(a.anaerobicTE,1)} anaerobic`:''):null],['VO₂ max',a.vo2],['Steps',a.steps],['Location',a.loc],['Notes',a.desc]];
+  $('#dlgBody').innerHTML=`<h2 style="font-size:18px">${esc(a.name||label(a.type))}</h2><dl>${f.filter(r=>r[1]!=null&&r[1]!=='–').map(r=>`<dt>${r[0]}</dt><dd>${esc(r[1])}</dd>`).join('')}</dl>
+   <p>${a.fit?`<a href="activities/fit/${a.id}.zip" download>Original FIT file</a> · `:''}${a.gpx?`<a href="activities/gpx/${a.id}.gpx" download>GPX</a> · `:''}${a.lat?`<a href="https://www.openstreetmap.org/?mlat=${a.lat}&mlon=${a.lon}#map=13/${a.lat}/${a.lon}" target="_blank">Start on map</a> · `:''}<a href="https://connect.garmin.com/modern/activity/${a.id}" target="_blank">Open in Garmin Connect</a></p>`;
+  $('#dlg').showModal();
+}
+function downloadCSV(rows){
+  const keys=['id','start','name','type','km','sec','movSec','speed','avgHr','maxHr','elev','kcal','cadence','power','aerobicTE','anaerobicTE','vo2','steps','loc'];
+  const q=v=>v==null?'':/[",\n]/.test(String(v))?'"'+String(v).replace(/"/g,'""')+'"':v;
+  const csv=[keys.join(','),...rows.map(r=>keys.map(k=>q(r[k])).join(','))].join('\n');
+  const u=URL.createObjectURL(new Blob([csv],{type:'text/csv'})); const l=document.createElement('a'); l.href=u; l.download='garmin_activities.csv'; l.click(); URL.revokeObjectURL(u);
+}
+function more(){
+  const el=$('#more'), A=G.activities;
+  const best=(t,k,dir=1)=>A.filter(a=>a.type===t&&a[k]).sort((a,b)=>(b[k]-a[k])*dir)[0];
+  const types=[...new Set(A.map(a=>a.type))];
+  const rows=types.map(t=>{const l=best(t,'km'),e=best(t,'elev'),d=best(t,'sec');return `<tr><td>${label(t)}</td><td class="n">${l?fmt(l.km,1)+' km':'–'}</td><td class="n">${d?hms(d.sec):'–'}</td><td class="n">${e?fmt(e.elev)+' m':'–'}</td><td class="n">${A.filter(a=>a.type===t).length}</td></tr>`;}).join('');
+  el.innerHTML=`<div class="card"><h2>Longest efforts (all time)</h2><div class="tw"><table><thead><tr><th>Type</th><th class="n">Longest distance</th><th class="n">Longest time</th><th class="n">Most climbing</th><th class="n">Total count</th></tr></thead><tbody>${rows||'<tr><td colspan=5 class="mut">No activities</td></tr>'}</tbody></table></div></div>
+  <div class="card"><h2>Devices</h2>${G.devices.length?'<table><thead><tr><th>Device</th><th>Firmware</th></tr></thead><tbody>'+G.devices.map(d=>`<tr><td>${esc(d.name)}</td><td>${esc(d.fw||'')}</td></tr>`).join('')+'</tbody></table>':'<p class="mut">None saved.</p>'}</div>
+  <div class="card"><h2>Sync</h2><p class="mut">Last synced ${G.generated?new Date(G.generated).toLocaleString():'–'}. ${G.activities.length} activities, ${G.days.length} days, ${G.weights.length} weigh-ins.${G.meta&&G.meta.complete===false?' Older history is still downloading.':''}</p>
+   <div class="links">${REPO?`<a href="${REPO}/actions/workflows/sync.yml" target="_blank">Sync now / enter verification code</a><a href="${REPO}/actions" target="_blank">Sync history</a>`:''}</div>
+   <button class="btn" onclick="lockNow()">Lock &amp; forget passphrase on this device</button></div>`;
+}
+const RENDER={overview,health,sleep,activities,more};
+let TAB='overview';
+function show(t){ TAB=t; document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('on',b.dataset.t===t)); document.querySelectorAll('section').forEach(s=>s.classList.toggle('on',s.id===t)); RENDER[t](); }
+$('#tabs').onclick=e=>{ if(e.target.dataset.t) show(e.target.dataset.t); };
+$('#range').onclick=e=>{ if(e.target.dataset.d==null) return; RANGE=+e.target.dataset.d; document.querySelectorAll('#range button').forEach(b=>b.classList.toggle('on',b===e.target)); show(TAB); };
+function startApp(){
+  $('#title').textContent = G.name ? G.name.split(' ')[0]+"'s Garmin" : 'Garmin Dashboard';
+  const span = G.days.length ? `${G.days[0].d} → ${G.days[G.days.length-1].d}` : '';
+  $('#sub').textContent = `${G.activities.length} activities · ${G.days.length} days ${span}`;
+  $('#lock').remove(); show('overview');
+}
+// ---- decryption (matches garmin_sync.py) -----------------------------------
+const REPO = location.hostname.endsWith('github.io') ? `https://github.com/${location.hostname.split('.')[0]}/${location.pathname.split('/')[1]||location.hostname}` : '';
+const b64 = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
+async function decryptData(env, pass){
+  const base = await crypto.subtle.importKey('raw', new TextEncoder().encode(pass), 'PBKDF2', false, ['deriveKey']);
+  const key = await crypto.subtle.deriveKey({name:'PBKDF2', salt:b64(env.salt), iterations:env.iter, hash:'SHA-256'}, base, {name:'AES-GCM', length:256}, false, ['decrypt']);
+  const gz = await crypto.subtle.decrypt({name:'AES-GCM', iv:b64(env.iv)}, key, b64(env.ct));
+  return JSON.parse(await new Response(new Blob([gz]).stream().pipeThrough(new DecompressionStream('gzip'))).text());
+}
+let ENV = null;
+async function loadEnv(){
+  if (ENV) return ENV;
+  const r = await fetch('data.enc.json?t=' + Date.now(), {cache:'no-store'});
+  if (!r.ok) throw new Error('nodata');
+  return ENV = await r.json();
+}
+const store = { get(){ try{return localStorage.getItem('gd-pass');}catch(e){return null;} }, set(v){ try{localStorage.setItem('gd-pass',v);}catch(e){} }, del(){ try{localStorage.removeItem('gd-pass');}catch(e){} } };
+function lockNow(){ store.del(); location.reload(); }
+async function unlock(pass, remember){
+  const err = $('#lockErr'), btn = $('#unlockBtn');
+  err.textContent=''; btn.disabled=true; btn.textContent='Unlocking…';
+  try {
+    const env = await loadEnv();
+    try { G = await decryptData(env, pass); }
+    catch(e){ store.del(); throw new Error('Wrong passphrase.'); }
+    if (remember) store.set(pass);
+    startApp();
+  } catch(e) {
+    err.textContent = e.message==='nodata' ? 'No data yet. The first sync hasn’t finished — check the Actions tab in your GitHub repo.' : e.message;
+    btn.disabled=false; btn.textContent='Unlock';
+  }
+}
+$('#lockForm').onsubmit = e => { e.preventDefault(); unlock($('#pass').value, $('#remember').checked); };
+if (!window.crypto || !crypto.subtle || !window.DecompressionStream) $('#lockErr').textContent='This browser is too old to open encrypted data. Please update it.';
+else { const saved = store.get(); if (saved) unlock(saved, true); }
+</script>
+</body>
+</html>

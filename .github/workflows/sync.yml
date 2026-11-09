@@ -1,0 +1,95 @@
+name: Sync Garmin data
+
+on:
+  schedule:
+    - cron: "41 19 * * *"   # once a day (19:41 UTC). Change if you like.
+  workflow_dispatch:
+    inputs:
+      mfa_code:
+        description: "Garmin verification code (only when the last run asked for one)"
+        required: false
+        type: string
+      start_date:
+        description: "Optional: first date to download, YYYY-MM-DD (default: your oldest activity)"
+        required: false
+        type: string
+      reset:
+        description: "Start over (tick this if you changed DATA_PASSPHRASE)"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+  actions: write      # lets a run start the next one while history is still downloading
+
+concurrency:
+  group: garmin-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install
+        run: pip install -r requirements.txt
+
+      - name: Restore saved state (encrypted)
+        uses: actions/cache/restore@v4
+        with:
+          path: state
+          key: garmin-state-${{ github.run_id }}
+          restore-keys: garmin-state-
+
+      - name: Sync from Garmin
+        id: sync
+        env:
+          DATA_PASSPHRASE: ${{ secrets.DATA_PASSPHRASE }}
+          GARMIN_EMAIL: ${{ secrets.GARMIN_EMAIL }}
+          GARMIN_PASSWORD: ${{ secrets.GARMIN_PASSWORD }}
+          MFA_CODE: ${{ inputs.mfa_code }}
+          START_DATE: ${{ inputs.start_date }}
+          RESET: ${{ inputs.reset }}
+          PAGES_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}
+        run: python garmin_sync.py
+
+      - name: Save state (encrypted)
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: state
+          key: garmin-state-${{ github.run_id }}
+
+      - name: Configure Pages
+        if: steps.sync.outputs.deploy == 'true'
+        uses: actions/configure-pages@v6
+
+      - name: Upload page
+        if: steps.sync.outputs.deploy == 'true'
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: site_out
+
+      - name: Publish page
+        id: deployment
+        if: steps.sync.outputs.deploy == 'true'
+        uses: actions/deploy-pages@v5
+
+      - name: Keep downloading history
+        if: steps.sync.outputs.more == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run sync.yml --ref "${{ github.ref_name }}"
