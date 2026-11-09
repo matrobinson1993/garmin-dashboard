@@ -5,6 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Garmin Dashboard</title>
 <meta name="theme-color" content="#0b7a75">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Garmin">
 <meta name="robots" content="noindex">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icon-192.png">
@@ -259,13 +262,22 @@ function more(){
   <div class="card"><h2>Devices</h2>${G.devices.length?'<table><thead><tr><th>Device</th><th>Firmware</th></tr></thead><tbody>'+G.devices.map(d=>`<tr><td>${esc(d.name)}</td><td>${esc(d.fw||'')}</td></tr>`).join('')+'</tbody></table>':'<p class="mut">None saved.</p>'}</div>
   <div class="card"><h2>Sync</h2><p class="mut">Last synced ${G.generated?new Date(G.generated).toLocaleString():'–'}. ${G.activities.length} activities, ${G.days.length} days, ${G.weights.length} weigh-ins.${G.meta&&G.meta.complete===false?' Older history is still downloading.':''}</p>
    <div class="links">${REPO?`<a href="${REPO}/actions/workflows/sync.yml" target="_blank">Sync now / enter verification code</a><a href="${REPO}/actions" target="_blank">Sync history</a>`:''}</div>
-   <button class="btn" onclick="lockNow()">Lock &amp; forget passphrase on this device</button></div>`;
+   <button class="btn" onclick="lockNow()">Lock &amp; forget passphrase on this device</button></div>
+  <div class="card"><h2>Install as an app</h2>${installEvt?'<p class="mut" style="margin-top:0">Adds Garmin Dashboard to your home screen and app drawer. It opens full screen and works offline with your last sync.</p><button class="btn" onclick="installApp()">Install app</button>':
+   window.matchMedia('(display-mode: standalone)').matches?'<p class="mut" style="margin:0">✓ Installed. It also works offline, showing your last sync.</p>':
+   '<p class="mut" style="margin:0">Android (Chrome): tap ⋮ → <b>Install app</b> or <b>Add to Home screen</b>.<br>iPhone (Safari): tap Share → <b>Add to Home Screen</b>.</p>'}</div>`;
 }
 const RENDER={overview,health,sleep,activities,more};
 let TAB='overview';
 function show(t){ TAB=t; document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('on',b.dataset.t===t)); document.querySelectorAll('section').forEach(s=>s.classList.toggle('on',s.id===t)); RENDER[t](); }
 $('#tabs').onclick=e=>{ if(e.target.dataset.t) show(e.target.dataset.t); };
 $('#range').onclick=e=>{ if(e.target.dataset.d==null) return; RANGE=+e.target.dataset.d; document.querySelectorAll('#range button').forEach(b=>b.classList.toggle('on',b===e.target)); show(TAB); };
+// ---- app install / offline -------------------------------------------------
+let installEvt = null;
+window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); installEvt = e; if (TAB==='more' && G) more(); });
+window.addEventListener('appinstalled', () => { installEvt = null; if (TAB==='more' && G) more(); });
+async function installApp(){ if(!installEvt) return; installEvt.prompt(); await installEvt.userChoice; installEvt = null; if (G) more(); }
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(()=>{});
 function startApp(){
   $('#title').textContent = G.name ? G.name.split(' ')[0]+"'s Garmin" : 'Garmin Dashboard';
   const span = G.days.length ? `${G.days[0].d} → ${G.days[G.days.length-1].d}` : '';
