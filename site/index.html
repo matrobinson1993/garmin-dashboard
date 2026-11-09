@@ -51,6 +51,18 @@ svg{touch-action:pan-y}
 #lock button,.btn{width:100%;padding:12px;font:inherit;font-weight:600;border:0;border-radius:8px;background:var(--acc);color:#fff;cursor:pointer}
 #lock label{display:flex;gap:8px;align-items:center;color:var(--mut);margin-bottom:14px}#lockErr{color:var(--warn);min-height:20px;margin:8px 0 0}
 .links a{display:inline-block;margin:0 14px 8px 0}
+.tcard{cursor:pointer;transition:border-color .15s}.tcard:hover{border-color:var(--acc)}
+.tcard h2{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;margin-bottom:4px}.tcard .more{margin-left:auto;color:var(--acc);font-size:13px;font-weight:500}
+.tline{font-size:13px;color:var(--mut);margin:0 0 10px}
+.chip{display:inline-block;font-size:12px;font-weight:600;padding:2px 9px;border-radius:99px;white-space:nowrap}
+.chip.good{background:#dcfae6;color:#067647}.chip.bad{background:#fef0c7;color:#b54708}.chip.neu{background:var(--acc2);color:var(--mut)}
+@media (prefers-color-scheme:dark){.chip.good{background:#053321;color:#75e0a7}.chip.bad{background:#4e1d09;color:#fec84b}}
+#trend{padding:0;max-width:760px;width:100%;border:0}
+#trend .th{position:sticky;top:0;z-index:2;background:var(--card);display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--line)}
+#trend .th h2{margin:0;font-size:17px;flex:1}#trend .x{font:inherit;font-size:20px;border:0;background:none;color:var(--ink);cursor:pointer;padding:4px 8px}
+#trend .tb{padding:16px}#trend .sum p{margin:0 0 10px;line-height:1.5}#trend .sum .about{color:var(--mut);font-size:13px;border-top:1px solid var(--line);padding-top:10px;margin-top:4px}
+#trend .grid{grid-template-columns:repeat(4,1fr);margin:14px 0}
+@media (max-width:600px){#trend{max-width:100vw;max-height:100dvh;height:100dvh;margin:0;border-radius:0}#trend .grid{grid-template-columns:repeat(2,1fr)}}
 .exp{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px;align-items:center}
 .dl{font:inherit;font-size:13px;padding:7px 12px;border:1px solid var(--line);border-radius:99px;background:var(--card);color:var(--ink);cursor:pointer}
 .dl::before{content:'⬇ ';color:var(--acc)}.dl:active{background:var(--acc2)}
@@ -72,6 +84,7 @@ svg{touch-action:pan-y}
 <section id="more"></section>
 </main>
 <div class="tip" id="tip"></div>
+<dialog id="trend"><div class="th"><button class="x" onclick="closeTrend()" aria-label="Back">←</button><h2 id="trTitle"></h2><span id="trChip"></span></div><div class="tb" id="trBody"></div></dialog>
 <dialog id="dlg"><div id="dlgBody"></div><p style="text-align:right;margin:12px 0 0"><button onclick="dlg.close()">Close</button></p></dialog>
 <script>
 let G = null;
@@ -117,11 +130,139 @@ function chart(el, rows, key, o={}) {
     tip.textContent=`${best.d}: ${fmt(best.v, o.dec??0)}${o.unit||''}`; };
   svg.onpointerleave = () => { tip.style.display='none'; hx.setAttribute('opacity',0); };
 }
+// ---- trend analysis ---------------------------------------------------------
+// better: 'up' = higher is better, 'down' = lower is better, 'neutral' = no judgement, [lo,hi] = target range
+const METRICS = {
+  rhr:{better:'down', about:'Resting heart rate. A lower resting heart rate usually reflects a fitter heart. A rise of 5+ bpm above your normal for several days is often linked to illness, poor sleep, stress, alcohol or overtraining.'},
+  hrv:{better:'up', about:'Overnight heart rate variability. Compare it with your own baseline, not other people’s. Higher than your normal usually means good recovery; a drop below it often follows hard training, stress, illness, alcohol or short sleep. It naturally declines slowly with age.'},
+  stress:{better:'down', about:'Garmin’s all-day stress score (0–100) is based on heart rate variability, so it rises with physical strain, illness and poor recovery as well as mental stress. Under 25 is rest; 26–50 is low.'},
+  bbHigh:{better:'up', about:'The highest Body Battery reached each day, usually after sleep. A higher peak means you are starting the day better recharged.'},
+  readiness:{better:'up', about:'Training readiness combines sleep, recovery time, HRV, acute training load and stress. Low readiness for a few days is normal after hard blocks; a long run of low scores suggests you need more recovery.'},
+  vo2:{better:'up', about:'VO₂ max is Garmin’s estimate of your aerobic fitness. It moves slowly: a change of 1–2 points over a few months is meaningful.'},
+  kg:{better:'neutral', about:'Body weight from your scale or manual entries. Whether up or down is “good” depends on your goals, so no judgement is made.'},
+  intensity:{better:'up', about:'Intensity minutes (vigorous minutes count double). Health guidelines suggest at least 150 a week, about 21 a day.'},
+  activeKcal:{better:'up', about:'Calories burned through activity on top of your resting metabolism.'},
+  floors:{better:'up', about:'Floors climbed, counted from your watch’s barometer.'},
+  spo2:{better:'neutral', about:'Average blood oxygen. Readings of about 95–100% are typical at sea level; wrist readings are noisy and drop at altitude.'},
+  resp:{better:'neutral', about:'Average breathing rate while awake. 12–20 breaths a minute is typical; a sustained change from your own normal can accompany illness.'},
+  steps:{better:'up', about:'Daily steps. Studies link more daily steps to lower health risk, with most of the benefit up to about 8,000–10,000 a day.'},
+  weeklyKm:{better:'up', about:'Total distance from all recorded activities each week (Monday start).'},
+  sleepH:{better:[7,9], about:'Total sleep time. Most adults need 7–9 hours a night.'},
+  sleepScore:{better:'up', about:'Garmin’s 0–100 sleep score: 90+ excellent, 80–89 good, 60–79 fair, under 60 poor.'},
+  deepH:{better:'up', about:'Deep sleep is the most physically restorative stage. It typically makes up about 13–23% of the night.'},
+  remH:{better:'up', about:'REM sleep supports memory and mood. It typically makes up about 20–25% of the night.'},
+};
+const DAY = 864e5;
+function seriesOf(rows, key){ return rows.filter(r=>r[key]!=null&&r.d).map(r=>({t:+new Date(r.d), d:r.d, v:r[key]})).sort((a,b)=>a.t-b.t); }
+const mean = a => a.length ? a.reduce((x,y)=>x+y,0)/a.length : null;
+const sd = a => { const m=mean(a); return a.length>1 ? Math.sqrt(mean(a.map(x=>(x-m)**2))) : 0; };
+function windowAvg(pts, endT, days){ return mean(pts.filter(p=>p.t>endT-days*DAY && p.t<=endT).map(p=>p.v)); }
+function regress(pts){
+  if (pts.length < 6) return null;
+  const t0=pts[0].t, xs=pts.map(p=>(p.t-t0)/DAY), ys=pts.map(p=>p.v), mx=mean(xs), my=mean(ys);
+  let num=0, den=0; xs.forEach((x,i)=>{num+=(x-mx)*(ys[i]-my); den+=(x-mx)**2;});
+  const slope=den?num/den:0, span=xs[xs.length-1]; const start=my-slope*mx, end=start+slope*span;
+  return {start, end, change:end-start, rel:(end-start)/(sd(ys)||1), span};
+}
+function judge(key, pts){
+  const meta=METRICS[key]||{better:'neutral'}, r=regress(pts);
+  if (!r) return {cls:'neu', text:'Not enough data', dir:0, r};
+  const dir = Math.abs(r.rel) < 0.35 ? 0 : Math.sign(r.change);
+  if (Array.isArray(meta.better)) {
+    const [lo,hi]=meta.better, dist=v=>v<lo?lo-v:v>hi?v-hi:0, ds=dist(r.start), de=dist(r.end);
+    if (de===0 && ds===0) return {cls:'good', text:'In healthy range', dir, r};
+    if (Math.abs(de-ds) < 0.1) return {cls:de?'bad':'good', text:de?'Below target':'In healthy range', dir, r};
+    return de<ds ? {cls:'good', text:'Improving', dir, r} : {cls:'bad', text:'Worsening', dir, r};
+  }
+  if (!dir) return {cls:'neu', text:'Stable', dir, r};
+  if (meta.better==='neutral') return {cls:'neu', text:dir>0?'Rising':'Falling', dir, r};
+  const good = (dir>0) === (meta.better==='up');
+  return {cls:good?'good':'bad', text:good?'Improving':'Worsening', dir, r};
+}
+const chipHTML = j => `<span class="chip ${j.cls}">${j.dir>0?'↗ ':j.dir<0?'↘ ':''}${j.text}</span>`;
+const RANGE_WORDS = {30:'the last 30 days', 90:'the last 90 days', 365:'the last year', 0:'all your history'};
+const monthName = d => new Date(d).toLocaleDateString(undefined,{month:'short', year:'numeric'});
+function cmpWord(a, b, dec, unit, label){
+  const diff=a-b, eps=Math.max(Math.abs(b)*0.01, dec?0.05:0.5);
+  if (Math.abs(diff) < eps) return `about the same as ${label} (${fmt(b,dec)}${unit})`;
+  return `${diff>0?'up':'down'} ${fmt(Math.abs(diff),dec)}${unit} on ${label} (${fmt(b,dec)}${unit})`;
+}
+function trendSummary(key, allPts, rangePts, o, range){
+  const unit=o.unit||'', meta=METRICS[key]||{better:'neutral'}, j=judge(key, rangePts), out=[], per=o.per||'';
+  if (!allPts.length) return {j, html:'<p>No data yet.</p>', short:''};
+  const endT=allPts[allPts.length-1].t;
+  // small numbers get one extra decimal so comparisons read consistently
+  const dec=(o.dec??0)+((o.dec??0)===0 && Math.abs(allPts[allPts.length-1].v)<300 ? 1 : 0);
+  // 1. direction over the selected range
+  if (j.r) {
+    const verb = j.dir===0 ? `has held steady at about ${fmt((j.r.start+j.r.end)/2,dec)}${unit}` : `has ${j.dir>0?'risen':'fallen'} from about ${fmt(j.r.start,dec)}${unit} to ${fmt(j.r.end,dec)}${unit}`;
+    const tone = j.cls==='good'&&j.dir ? ' — a good direction.' : j.cls==='bad'&&j.dir ? ' — the less favourable direction, worth keeping an eye on.' : '.';
+    out.push(`Over ${RANGE_WORDS[range]||'this period'} it ${verb}${tone}`);
+  }
+  // 2. last 30 days vs before and vs a year ago
+  const r30=windowAvg(allPts,endT,30), p30=windowAvg(allPts,endT-30*DAY,30), y30=windowAvg(allPts,endT-365*DAY,30);
+  if (r30!=null) {
+    let s=`Your last 30 days averaged <b>${fmt(r30,dec)}${unit}${per}</b>`;
+    const parts=[]; if (p30!=null) parts.push(cmpWord(r30,p30,dec,unit,'the month before')); if (y30!=null) parts.push(cmpWord(r30,y30,dec,unit,'the same time last year'));
+    out.push(s + (parts.length ? ` — ${parts.join(', and ')}.` : '.'));
+  }
+  // 3. this week vs your normal range
+  const base=allPts.filter(p=>p.t>endT-90*DAY && p.t<=endT-7*DAY).map(p=>p.v), wk=windowAvg(allPts,endT,7);
+  if (base.length>=20 && wk!=null) {
+    const m=mean(base), s=sd(base);
+    if (s>0 && Math.abs(wk-m) > s) {
+      const hi=wk>m, good = meta.better==='up' ? hi : meta.better==='down' ? !hi : null;
+      out.push(`This past week (${fmt(wk,dec)}${unit}) is <b>${hi?'above':'below'} your usual range</b> of ${fmt(m-s,dec)}–${fmt(m+s,dec)}${unit}${good===true?', in a good way.':good===false?'. One week isn’t a trend, but watch whether it continues.':'.'}`);
+    } else out.push(`This past week (${fmt(wk,dec)}${unit}) is within your usual range.`);
+  }
+  // 4. personal best 30-day stretch
+  if ((meta.better==='up'||meta.better==='down') && allPts.length>60) {
+    let best=null; const step=Math.max(1,Math.floor(allPts.length/400));
+    for (let i=0;i<allPts.length;i+=step){ const a=windowAvg(allPts,allPts[i].t,30); if(a==null) continue; if(!best||(meta.better==='up'?a>best.v:a<best.v)) best={v:a,t:allPts[i].t}; }
+    if (best) { const near = r30!=null && Math.abs(r30-best.v) <= Math.max(Math.abs(best.v)*0.03, dec?0.1:1);
+      out.push(`Your best 30-day stretch was <b>${fmt(best.v,dec)}${unit}</b> (around ${monthName(best.t)})${near?' — you’re right at that level now.':'.'}`); }
+  }
+  if (Array.isArray(meta.better) && r30!=null) {
+    const [lo,hi]=meta.better, nights=allPts.filter(p=>p.t>endT-30*DAY), inR=nights.filter(p=>p.v>=lo&&p.v<=hi).length;
+    out.push(`${inR} of your last ${nights.length} nights were in the ${lo}–${hi}${unit} range.`);
+  }
+  const short = r30==null ? '' : `Last 30 days ${fmt(r30,dec)}${unit}${per}` + (p30!=null ? ` · ${r30-p30>=0?'+':'−'}${fmt(Math.abs(r30-p30),dec)} vs month before` : '');
+  return {j, short, html: out.map(s=>`<p>${s}</p>`).join('') + (meta.about?`<p class="about">${meta.about}</p>`:'')};
+}
+
 function chartCard(title, rows, key, o={}) {
-  const c=document.createElement('div'); c.className='card';
-  const vals=rows.map(r=>r[key]).filter(v=>v!=null);
-  c.innerHTML=`<h2>${title} <span class="mut" style="font-weight:400">· avg ${fmt(avg(vals),o.dec??0)}${o.unit||''}</span></h2><div></div>`;
-  chart(c.lastChild, rows, key, o); return c;
+  const mkey=o.mkey||key, c=document.createElement('div'); c.className='card tcard';
+  const all=seriesOf(o.src?o.src():G.days, key), sm=trendSummary(mkey, all, seriesOf(rows,key), o, RANGE);
+  c.innerHTML=`<h2>${title} ${chipHTML(sm.j)}<span class="more">Details ›</span></h2><p class="tline">${sm.short||'&nbsp;'}</p><div></div>`;
+  chart(c.lastChild, rows, key, o);
+  c.onclick = () => openTrend(title, key, o);
+  return c;
+}
+
+let TR=null;
+function openTrend(title, key, o){ TR={title,key,o,range:RANGE}; tip.style.display='none'; $('#trend').showModal(); renderTrend(); $('#trend').scrollTop=0; }
+function closeTrend(){ $('#trend').close(); TR=null; }
+function renderTrend(){
+  const {title,key,o,range}=TR, mkey=o.mkey||key, unit=o.unit||'', dec=o.dec??0;
+  const allRows=o.src?o.src():G.days, all=seriesOf(allRows,key);
+  const cut = range ? (()=>{const d=new Date(); d.setDate(d.getDate()-range); return +d;})() : 0;
+  const rows=allRows.filter(r=>+new Date(r.d)>=cut), pts=all.filter(p=>p.t>=cut);
+  const sm=trendSummary(mkey, all, pts, o, range);
+  $('#trTitle').textContent=title; $('#trChip').innerHTML=chipHTML(sm.j);
+  const vals=pts.map(p=>p.v), lo=pts.reduce((a,p)=>!a||p.v<a.v?p:a,null), hi=pts.reduce((a,p)=>!a||p.v>a.v?p:a,null);
+  const latest=all.length?all[all.length-1]:null;
+  const months={}; pts.forEach(p=>{const k=p.d.slice(0,7); (months[k]=months[k]||[]).push(p.v);});
+  const mrows=Object.keys(months).sort().reverse().slice(0,36);
+  $('#trBody').innerHTML = `<div class="seg" id="trRange">${[[30,'30d'],[90,'90d'],[365,'1y'],[0,'All']].map(([d,l])=>`<button data-d="${d}" class="${d===range?'on':''}">${l}</button>`).join('')}</div>
+    <div class="sum" style="margin-top:14px">${sm.html}</div>
+    <div class="card" style="margin:14px 0 0"><div id="trChart"></div></div>
+    <div class="grid">${tile(fmt(mean(vals),dec)+unit,'average')}${tile(latest?fmt(latest.v,dec)+unit:'–','latest'+(latest?' · '+latest.d.slice(5):''))}
+      ${tile(lo?fmt(lo.v,dec)+unit:'–','lowest'+(lo?' · '+lo.d:''))}${tile(hi?fmt(hi.v,dec)+unit:'–','highest'+(hi?' · '+hi.d:''))}</div>
+    <div class="card" style="margin:0"><h2>By month</h2><div class="tw"><table><thead><tr><th>Month</th><th class="n">Average</th><th class="n">Low</th><th class="n">High</th><th class="n">${o.src?'Weeks':'Days'}</th></tr></thead><tbody>
+    ${mrows.map(k=>{const v=months[k];return `<tr><td>${monthName(k+'-15')}</td><td class="n">${fmt(mean(v),dec)}</td><td class="n">${fmt(Math.min(...v),dec)}</td><td class="n">${fmt(Math.max(...v),dec)}</td><td class="n">${v.length}</td></tr>`;}).join('')||'<tr><td colspan=5 class="mut">No data in this range</td></tr>'}
+    </tbody></table></div></div>`;
+  chart($('#trChart'), rows, key, {...o, h:240});
+  $('#trRange').onclick = e => { if (e.target.dataset.d==null) return; TR.range=+e.target.dataset.d; renderTrend(); };
 }
 const tile = (v, l) => `<div class="tile"><b>${v}</b><span>${l}</span></div>`;
 
@@ -141,7 +282,7 @@ function overview(){
   // weekly distance
   const wk={}; acts.forEach(a=>{ const d=new Date(a.start.slice(0,10)); d.setDate(d.getDate()-((d.getDay()+6)%7)); const k=d.toISOString().slice(0,10); wk[k]=(wk[k]||0)+(a.km||0); });
   const wrows=Object.keys(wk).sort().map(k=>({d:k,km:+wk[k].toFixed(1)}));
-  const c=$('#ovc'); c.append(chartCard('Weekly distance',wrows,'km',{bar:1,unit:' km',dec:1}));
+  const c=$('#ovc'); c.append(chartCard('Weekly distance',wrows,'km',{bar:1,unit:' km',dec:1,per:' a week',mkey:'weeklyKm',src:()=>weeklyRows(G.activities).map(w=>({d:w.d,km:+w.km.toFixed(1)}))}));
   c.append(chartCard('Daily steps',days,'steps',{bar:1}));
 }
 function health(){
@@ -268,6 +409,7 @@ function more(){
    '<p class="mut" style="margin:0">Android (Chrome): tap ⋮ → <b>Install app</b> or <b>Add to Home screen</b>.<br>iPhone (Safari): tap Share → <b>Add to Home Screen</b>.</p>'}</div>`;
 }
 const RENDER={overview,health,sleep,activities,more};
+$('#trend').addEventListener('close', ()=>{ TR=null; tip.style.display='none'; });
 let TAB='overview';
 function show(t){ TAB=t; document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('on',b.dataset.t===t)); document.querySelectorAll('section').forEach(s=>s.classList.toggle('on',s.id===t)); RENDER[t](); }
 $('#tabs').onclick=e=>{ if(e.target.dataset.t) show(e.target.dataset.t); };
