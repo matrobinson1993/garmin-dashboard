@@ -61,6 +61,12 @@
   pre#tab.names{white-space:pre-wrap;word-spacing:4px;font-size:18px;line-height:1.7}
   .focus{margin-top:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;color:var(--muted);font-size:14px}
   .focus select{width:auto}
+  .prog{height:8px;background:var(--panel2);border:1px solid var(--line);border-radius:6px;overflow:hidden;margin-top:12px;display:none}
+  .prog i{display:block;height:100%;width:0;background:var(--accent);transition:width .2s}
+  .opts{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-top:12px}
+  .opts label{display:block;font-size:13px;color:var(--muted);margin-bottom:4px}
+  .opts input[type=number]{width:100%;font:inherit;color:var(--text);background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:9px 12px}
+  .badge{font-size:11px;background:var(--accent);color:#1b1206;border-radius:6px;padding:2px 6px;margin-left:6px;vertical-align:middle;letter-spacing:0}
   ul.tips{margin:0;padding-left:18px;color:var(--muted)}
   ul.tips li{margin:4px 0}
   ul.tips b{color:var(--text)}
@@ -76,7 +82,7 @@
   </header>
 
   <section class="card">
-    <h2>1 · Choose what to listen to</h2>
+    <h2>1 · Listen live</h2>
     <div class="row">
       <button class="primary" id="btnTab">Listen to a browser tab</button>
       <button id="btnMic">Use microphone</button>
@@ -102,7 +108,21 @@
   </section>
 
   <section class="card">
-    <h2>2 · What it hears</h2>
+    <h2>Or: transcribe a whole song <span class="badge">more accurate</span></h2>
+    <p style="margin:0;color:var(--muted)">Listens to the entire file first using an AI note-detection model (Spotify's Basic Pitch), then writes the tab. It takes longer but handles chords and busy mixes far better. The "Focus on" setting above applies here too.</p>
+    <div class="opts">
+      <div><label>Song file</label><label class="filebtn" style="display:inline-block;color:var(--text);margin:0">Choose song<input type="file" id="songIn" accept="audio/*,video/*"></label> <span id="songName" style="color:var(--muted);font-size:13px"></span></div>
+      <div><label for="part">What to write</label><select id="part"><option value="lead">Riffs &amp; solos (one note at a time)</option><option value="chords">Chords and riffs</option></select></div>
+      <div><label for="detail">Detail</label><select id="detail"><option value="0.5">Fewer notes (cleaner)</option><option value="0.35" selected>Balanced</option><option value="0.22">More notes (catches quiet ones)</option></select></div>
+      <div><label for="fromS">Only from … to … (seconds, optional)</label><div class="row" style="flex-wrap:nowrap"><input type="number" id="fromS" min="0" placeholder="start"><input type="number" id="toS" min="0" placeholder="end"></div></div>
+    </div>
+    <div class="row" style="margin-top:12px"><button class="primary" id="btnTranscribe" disabled>Transcribe song</button></div>
+    <div class="prog" id="prog"><i id="progBar"></i></div>
+    <div class="status" id="songStatus">Choose a song file to start. The AI model (about 1 MB) downloads the first time.</div>
+  </section>
+
+  <section class="card">
+    <h2>2 · What it hears (live)</h2>
     <div class="live">
       <div class="note" id="noteName">–<small id="freq">no note</small></div>
       <div class="meters">
@@ -144,6 +164,7 @@
     <ul class="tips">
       <li><b>Listening to YouTube:</b> on a computer, use Chrome or Edge. Open the video in another tab, click <b>Listen to a browser tab</b>, pick that tab and make sure <b>"Also share tab audio"</b> is switched on. Then press play on the video.</li>
       <li><b>Keep this page visible:</b> put the two tabs in side-by-side windows so you can watch the tab being written.</li>
+      <li><b>Best accuracy:</b> use <b>Transcribe a whole song</b> with a short section (the riff you want) set in "Only from … to …". Shorter sections process faster, especially on a phone.</li>
       <li><b>Full songs:</b> try <b>Focus on → Guitars – remove centre</b>. It cancels whatever sits in the middle of the stereo mix (usually vocals, bass, kick and snare), leaving guitars panned to the sides. It works on audio files and computer tab listening, not the phone microphone, which only hears one mixed signal. If the guitar is on one side, try <b>Left</b> or <b>Right side only</b>. Results depend on how the song was mixed.</li>
       <li><b>Check it by ear:</b> <b>Play back</b> plays the detected notes so you can hear whether they match.</li>
       <li><b>Works best on single notes:</b> riffs, melodies and solos. Chords, heavy distortion and busy full-band mixes will give messy results because it follows one note at a time.</li>
@@ -287,6 +308,65 @@ function chooseFret(midi, tuning, state, maxFret){
   return best;
 }
 
+// Picks strings/frets for notes played together: one note per string, within a 4-fret stretch.
+// Notes come loudest first; if no shape fits, the quietest notes are dropped.
+function chooseChord(notesIn, tuning, state, maxFret){
+  let notes = notesIn.slice(0, tuning.length);
+  while (notes.length){
+    const cands = notes.map(n => tuning.map((t,s) => ({s, f:n.midi-t, midi:n.midi})).filter(c => c.f >= 0 && c.f <= maxFret));
+    let best = null;
+    const acc = [];
+    const rec = (i, used) => {
+      if (i === notes.length){
+        const fr = acc.filter(c => c.f > 0).map(c => c.f);
+        const lo = fr.length ? Math.min(...fr) : 0, hi = fr.length ? Math.max(...fr) : 0;
+        if (hi - lo > 4) return;
+        const centre = fr.length ? (lo+hi)/2 : 0;
+        const cost = (hi-lo)*1.2 + (state.hand == null ? centre*0.3 : Math.abs(centre - state.hand)*0.6) + centre*0.05;
+        if (!best || cost < best.cost) best = {cost, notes: acc.map(c => ({...c})), centre, fretted: fr.length};
+        return;
+      }
+      for (const c of cands[i]){ if (used & (1 << c.s)) continue; acc.push(c); rec(i+1, used | (1 << c.s)); acc.pop(); }
+    };
+    rec(0, 0);
+    if (best){ if (best.fretted) state.hand = Math.round(best.centre); state.string = null; return best.notes; }
+    notes = notes.slice(0, -1);
+  }
+  return null;
+}
+
+// Turns whole-song note events ({startTimeSeconds, durationSeconds, pitchMidi, amplitude})
+// into tab items. mode 'lead' keeps the loudest note at each moment; 'chords' keeps up to 6.
+function eventsToItems(events, tuning, maxFret, mode, minAmp){
+  const lowest = Math.min(...tuning), highest = Math.max(...tuning) + maxFret;
+  const ev = events.filter(e => e.amplitude >= minAmp && e.pitchMidi >= lowest && e.pitchMidi <= highest && e.durationSeconds >= 0.05)
+                   .sort((a,b) => a.startTimeSeconds - b.startTimeSeconds);
+  const groups = [];
+  for (const e of ev){
+    const g = groups[groups.length-1];
+    if (g && e.startTimeSeconds - g.t < 0.05){ if (!g.notes.some(n => n.midi === e.pitchMidi)) g.notes.push({midi:e.pitchMidi, amp:e.amplitude}); }
+    else groups.push({t:e.startTimeSeconds, notes:[{midi:e.pitchMidi, amp:e.amplitude}]});
+  }
+  const items = [], st = {hand:null, string:null};
+  let prevT = null;
+  for (const g of groups){
+    g.notes.sort((a,b) => (b.amp - a.amp) || (b.midi - a.midi));
+    const gap = prevT == null ? 0 : Math.max(0, g.t - prevT - 0.3);
+    if (mode === 'lead' || g.notes.length === 1){
+      const m = g.notes[0].midi, p = chooseFret(m, tuning, st, maxFret);
+      if (!p) continue;
+      items.push({type:'note', midi:m, s:p.s, f:p.f, gap, time:g.t});
+    } else {
+      const shape = chooseChord(g.notes, tuning, st, maxFret);
+      if (!shape) continue;
+      if (shape.length === 1){ const c = shape[0]; items.push({type:'note', midi:c.midi, s:c.s, f:c.f, gap, time:g.t}); }
+      else items.push({type:'chord', notes:shape, gap, time:g.t});
+    }
+    prevT = g.t;
+  }
+  return items;
+}
+
 // Builds tab text. items: {type:'note', s, f, gap} or {type:'bar'}. Strings indexed low→high.
 function renderTab(items, tuning, width){
   const n = tuning.length;
@@ -297,6 +377,11 @@ function renderTab(items, tuning, width){
     if (it.type === 'bar'){ cols.push({bar:true, w:1}); continue; }
     const rests = Math.min(4, Math.floor((it.gap||0)/0.3));
     for (let k=0; k<rests; k++) cols.push({w:1});
+    if (it.type === 'chord'){
+      const w = Math.max(...it.notes.map(n => String(n.f).length));
+      cols.push({chord:it.notes, w:w+1, cw:w});
+      continue;
+    }
     const txt = String(it.f);
     cols.push({s:it.s, txt, w:txt.length+1});
   }
@@ -313,6 +398,7 @@ function renderTab(items, tuning, width){
       let l = names[s].padEnd(lw) + '|-';
       for (const c of row){
         if (c.bar) l += '|';
+        else if (c.chord){ const n = c.chord.find(x => x.s === s); l += (n ? String(n.f).padEnd(c.cw, '-') : '-'.repeat(c.cw)) + '-'; }
         else if (c.txt != null) l += (c.s === s ? c.txt : '-'.repeat(c.txt.length)) + '-';
         else l += '-';
       }
@@ -329,12 +415,17 @@ function renderNames(items){
   for (const it of items){
     if (it.type === 'bar'){ parts.push('|'); continue; }
     if (parts.length && it.gap > 0.6) parts.push('·');
+    if (it.type === 'chord'){
+      const nm = [...new Set([...it.notes].sort((a,b)=>a.midi-b.midi).map(n => NOTE_NAMES[((n.midi%12)+12)%12]))];
+      parts.push(nm.length === 1 ? nm[0] : '[' + nm.join(' ') + ']');
+      continue;
+    }
     parts.push(NOTE_NAMES[((it.midi%12)+12)%12]);
   }
   return parts.join('  ');
 }
 
-if (typeof module !== 'undefined') module.exports = {renderNames, yin, NoteTracker, Analyzer, chooseFret, renderTab, TUNINGS, midiName};
+if (typeof module !== 'undefined') module.exports = {chooseChord, eventsToItems, renderNames, yin, NoteTracker, Analyzer, chooseFret, renderTab, TUNINGS, midiName};
 </script>
 
 <script>
@@ -373,6 +464,7 @@ if (typeof module !== 'undefined') module.exports = {renderNames, yin, NoteTrack
   function remapAll(){
     const st = {hand:null, string:null};
     items = items.map(it => {
+      if (it.type === 'chord'){ const sh = chooseChord(it.notes.map(n => ({midi:n.midi})), tuning(), st, maxFret()); return sh ? {...it, notes:sh} : null; }
       if (it.type !== 'note') return it;
       const p = chooseFret(it.midi, tuning(), st, maxFret());
       return p ? {...it, s:p.s, f:p.f} : null;
@@ -392,7 +484,7 @@ if (typeof module !== 'undefined') module.exports = {renderNames, yin, NoteTrack
   function scheduleRender(){ if (!renderQueued){ renderQueued = true; requestAnimationFrame(render); } }
   function render(){
     renderQueued = false;
-    const nNotes = items.filter(i => i.type === 'note').length;
+    const nNotes = items.filter(i => i.type === 'note' || i.type === 'chord').length;
     ui.count.textContent = nNotes + (nNotes === 1 ? ' note' : ' notes');
     if (!items.length){ ui.tab.innerHTML = '<span class="empty">Notes will appear here as they\'re detected.</span>'; return; }
     ui.tab.classList.toggle('names', view === 'names');
@@ -436,7 +528,7 @@ if (typeof module !== 'undefined') module.exports = {renderNames, yin, NoteTrack
   }
   $('btnPlay').onclick = () => {
     if (pb){ stopPlayback(); return; }
-    const notes = items.filter(i => i.type === 'note');
+    const notes = items.filter(i => i.type === 'note' || i.type === 'chord');
     if (!notes.length){ setStatus('No notes to play yet.'); return; }
     ensureCtx();
     const out = ctx.createGain(); out.gain.value = 0.25; out.connect(ctx.destination);
@@ -444,11 +536,92 @@ if (typeof module !== 'undefined') module.exports = {renderNames, yin, NoteTrack
     for (const n of notes){
       if (prev != null){ const d = n.time - prev; t += (d > 0 && isFinite(d)) ? Math.min(1, Math.max(0.12, d)) : 0.3; }
       prev = n.time;
-      pluck(n.midi, t, out);
+      if (n.type === 'chord') n.notes.forEach((c, k) => pluck(c.midi, t + k*0.012, out));
+      else pluck(n.midi, t, out);
     }
     muteUntil = t + 1.5; // don't transcribe our own playback through the mic
     pb = {out, timer: setTimeout(stopPlayback, (t + 1.5 - ctx.currentTime)*1000)};
     $('btnPlay').textContent = '■ Stop playback';
+  };
+
+  // ---------- Whole-song transcription (Basic Pitch) ----------
+  const BP_VER = '1.0.1';
+  const BP_LIB = ['https://cdn.jsdelivr.net/npm/@spotify/basic-pitch@' + BP_VER + '/+esm'];
+  const BP_MODEL = ['https://cdn.jsdelivr.net/npm/@spotify/basic-pitch@' + BP_VER + '/model/model.json',
+                    'https://unpkg.com/@spotify/basic-pitch@' + BP_VER + '/model/model.json'];
+  let bpLib = null, bpModel = null, songFile = null, busy = false;
+  const songStatus = (msg, kind) => { $('songStatus').textContent = msg; $('songStatus').className = 'status' + (kind ? ' ' + kind : ''); };
+  const progress = v => { $('prog').style.display = v == null ? 'none' : 'block'; $('progBar').style.width = ((v||0)*100).toFixed(0) + '%'; };
+
+  async function loadBasicPitch(){
+    if (bpModel) return;
+    let lastErr;
+    for (const u of BP_LIB){ try { bpLib = await import(u); break; } catch(e){ lastErr = e; } }
+    if (!bpLib) throw new Error('Could not download the AI library (' + (lastErr && lastErr.message) + ')');
+    for (const u of BP_MODEL){
+      try { const r = await fetch(u, {method:'HEAD'}); if (!r.ok) continue; bpModel = new bpLib.BasicPitch(u); return; } catch(e){ lastErr = e; }
+    }
+    throw new Error('Could not download the AI model (' + (lastErr && lastErr.message) + ')');
+  }
+
+  // Decode, apply the Focus setting, trim, and resample to 22,050 Hz mono for the model.
+  async function prepareAudio(file){
+    ensureCtx();
+    const buf = await ctx.decodeAudioData(await file.arrayBuffer());
+    const sr = buf.sampleRate;
+    let from = Math.max(0, +$('fromS').value || 0), to = +$('toS').value || buf.duration;
+    to = Math.min(buf.duration, Math.max(from + 0.5, to));
+    const a = Math.floor(from*sr), b = Math.floor(to*sr);
+    const L = buf.getChannelData(0).subarray(a, b), R = buf.numberOfChannels > 1 ? buf.getChannelData(1).subarray(a, b) : L;
+    const [gl, gr] = buf.numberOfChannels > 1 ? ({mix:[0.5,0.5], side:[1,-1], left:[1,0], right:[0,1]})[$('focus').value] : [1, 0];
+    const mono = new Float32Array(b - a);
+    for (let i=0; i<mono.length; i++) mono[i] = gl*L[i] + gr*R[i];
+    const outLen = Math.ceil(mono.length * 22050 / sr);
+    const off = new OfflineAudioContext(1, outLen, 22050);
+    const src = off.createBuffer(1, mono.length, sr); src.copyToChannel(mono, 0);
+    const node = off.createBufferSource(); node.buffer = src; node.connect(off.destination); node.start();
+    const res = (await off.startRendering()).getChannelData(0);
+    // normalise level so quiet files still trigger the model
+    let peak = 0; for (let i=0; i<res.length; i++) peak = Math.max(peak, Math.abs(res[i]));
+    if (peak > 0) for (let i=0; i<res.length; i++) res[i] /= peak;
+    return {audio: res, offset: from, length: to - from, stereo: buf.numberOfChannels > 1};
+  }
+
+  $('songIn').onchange = e => {
+    songFile = e.target.files[0] || null; e.target.value = '';
+    $('songName').textContent = songFile ? songFile.name : '';
+    $('btnTranscribe').disabled = !songFile;
+    if (songFile) songStatus('Ready. Tap "Transcribe song".');
+  };
+  $('btnTranscribe').onclick = async () => {
+    if (!songFile || busy) return;
+    busy = true; $('btnTranscribe').disabled = true; progress(0);
+    try {
+      songStatus('Downloading the AI model…'); 
+      await loadBasicPitch();
+      songStatus('Preparing audio…');
+      const prep = await prepareAudio(songFile);
+      if ($('focus').value !== 'mix' && !prep.stereo) songStatus('This file is mono, so "Focus on" can\'t separate anything. Analysing the whole thing…');
+      else songStatus('Listening to ' + prep.length.toFixed(0) + ' seconds of audio… this can take a while on a phone.');
+      const frames = [], onsets = [], contours = [];
+      await bpModel.evaluateModel(prep.audio, (f, o, c) => { frames.push(...f); onsets.push(...o); contours.push(...c); }, p => progress(p));
+      songStatus('Working out the notes…');
+      await new Promise(r => setTimeout(r, 30));
+      const thr = +$('detail').value;
+      const notes = bpLib.noteFramesToTime(bpLib.addPitchBendsToNoteEvents(contours,
+        bpLib.outputToNotesPoly(frames, onsets, thr, Math.max(0.2, thr - 0.1), 5, true, 1400, 78)));
+      notes.forEach(n => n.startTimeSeconds += prep.offset);
+      const newItems = eventsToItems(notes, tuning(), maxFret(), $('part').value, 0.15);
+      items = newItems; fretState.hand = null; fretState.string = null;
+      scheduleRender();
+      progress(1);
+      const n = newItems.length;
+      songStatus(n ? 'Done: ' + n + (n === 1 ? ' note or chord' : ' notes and chords') + ' written below. Tap Play back to check by ear.' : 'No guitar-range notes found. Try "More notes" or a different Focus setting.', n ? 'ok' : 'err');
+    } catch(e){
+      console.error(e);
+      songStatus('Something went wrong: ' + (e && e.message ? e.message : e) + '. Check your internet connection, or try a shorter section or a different file.', 'err');
+      progress(null);
+    } finally { busy = false; $('btnTranscribe').disabled = !songFile; }
   };
 
   function setStatus(msg, kind){ ui.status.textContent = msg; ui.status.className = 'status' + (kind ? ' ' + kind : ''); }
