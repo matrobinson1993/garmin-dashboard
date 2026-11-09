@@ -41,6 +41,8 @@
   .cents{height:14px}
   .cents::after{content:"";position:absolute;left:50%;top:-2px;bottom:-2px;width:2px;background:var(--muted)}
   .cents i{width:4px;left:50%;background:var(--accent);margin-left:-2px;transition:left .06s}
+  .gm{position:absolute;top:-2px;bottom:-2px;width:2px;background:#fff;opacity:.7;left:0}
+  .diag{color:var(--muted);font-size:12px;font-family:var(--mono)}
   .lbl{display:flex;justify-content:space-between;color:var(--muted);font-size:12px;margin-bottom:3px}
   .pos{font-family:var(--mono);color:var(--text);font-size:14px}
   details summary{cursor:pointer;color:var(--muted);font-size:13px;text-transform:uppercase;letter-spacing:1.2px;font-weight:600}
@@ -89,9 +91,10 @@
     <div class="live">
       <div class="note" id="noteName">–<small id="freq">no note</small></div>
       <div class="meters">
-        <div><div class="lbl"><span>Input level</span><span id="gateLbl">gate</span></div><div class="meter"><i id="level"></i></div></div>
+        <div><div class="lbl"><span>Input level</span><span id="gateLbl">gate</span></div><div class="meter"><i id="level"></i><b id="gateMark" class="gm"></b></div></div>
         <div><div class="lbl"><span>♭ flat</span><span>in tune</span><span>sharp ♯</span></div><div class="meter cents"><i id="cents"></i></div></div>
         <div class="pos" id="pos">Last note written: –</div>
+        <div class="diag" id="diag"></div>
       </div>
     </div>
     <details style="margin-top:16px">
@@ -125,6 +128,7 @@
       <li><b>Listening to YouTube:</b> on a computer, use Chrome or Edge. Open the video in another tab, click <b>Listen to a browser tab</b>, pick that tab and make sure <b>"Also share tab audio"</b> is switched on. Then press play on the video.</li>
       <li><b>Keep this page visible:</b> put the two tabs in side-by-side windows so you can watch the tab being written.</li>
       <li><b>Works best on single notes:</b> riffs, melodies and solos. Chords, heavy distortion and busy full-band mixes will give messy results because it follows one note at a time.</li>
+      <li><b>The white line on the level bar is the trigger point.</b> Notes are only written when the bar goes past it. The app adjusts to your room's background noise after a few seconds.</li>
       <li><b>Missing quiet notes?</b> Raise Sensitivity. <b>Getting junk notes?</b> Lower Sensitivity or raise Steadiness.</li>
       <li><b>Fast passages:</b> open the song as a file and play it at 50% speed.</li>
       <li>The string and fret choice is a best guess that keeps your hand in one area of the neck. The real player may have used a different position.</li>
@@ -161,9 +165,13 @@ function yin(buf, sr, minF, maxF, threshold){
     run += s;
     c[tau] = run > 0 ? s*tau/run : 1;
   }
+  let g = Infinity;
+  for (let t=tauMin; t<=tauMax; t++) if (c[t] < g) g = c[t];
+  if (g > 0.5) return null;
+  const thr = Math.max(threshold, g + 0.08);
   let tau = -1;
   for (let t=tauMin; t<=tauMax; t++){
-    if (c[t] < threshold){
+    if (c[t] < thr){
       while (t+1 <= tauMax && c[t+1] < c[t]) t++;
       tau = t; break;
     }
@@ -178,7 +186,7 @@ function yin(buf, sr, minF, maxF, threshold){
 // Turns a stream of (level, pitch) frames into discrete note onsets.
 class NoteTracker {
   constructor(opts){ this.opts = opts; this.reset(); }
-  reset(){ this.cand=null; this.candCount=0; this.current=null; this.peak=0; this.dip=0; this.lastEnd=null; this.unvoiced=0; this.onset=false; }
+  reset(){ this.cand=null; this.candCount=0; this.current=null; this.peak=0; this.dip=0; this.lastEnd=null; this.unvoiced=0; this.onset=false; this.lastCommit=null; }
   process(rms, pitch, time){
     const o = this.opts, out = [];
     const voiced = rms >= o.gate && pitch && pitch.freq >= o.minF && pitch.freq <= o.maxF;
@@ -191,19 +199,55 @@ class NoteTracker {
     this.unvoiced = 0;
     const mf = 69 + 12*Math.log2(pitch.freq/440), midi = Math.round(mf);
     // New pluck: level dipped well below its peak then jumped back up. Wait for the pitch to settle again.
-    if (this.current && this.dip < this.peak*0.45 && rms > this.dip*2.2){
+    if (this.current && this.dip < this.peak*0.6 && rms > this.dip*1.6){
       this.onset = true; this.peak = rms; this.dip = rms; this.cand = null;
     }
     if (rms > this.peak){ this.peak = rms; this.dip = rms; } else { this.dip = Math.min(this.dip, rms); }
     if (midi === this.cand) this.candCount++; else { this.cand = midi; this.candCount = 1; }
-    if (this.candCount >= o.minFrames && (!this.current || this.current.midi !== midi || this.onset)){
+    // Exactly an octave from the ringing note with no new pick: a misread while the note fades, not a new note.
+    const octaveGhost = this.current && !this.onset && Math.abs(this.current.midi - midi) === 12 && time - this.current.time >= 0.15;
+    if (this.candCount >= o.minFrames && !octaveGhost && (!this.current || this.current.midi !== midi || this.onset)){
       this.onset = false;
       const gap = this.current ? 0 : (this.lastEnd == null ? 0 : time - this.lastEnd);
+      // A very short note an octave away from this one was almost certainly a misread: replace it.
+      const prev = this.lastCommit;
+      const replace = !!(prev && Math.abs(prev.midi - midi) === 12 && time - prev.time < 0.15);
       this.current = {midi, time};
+      this.lastCommit = {midi, time};
       this.peak = rms; this.dip = rms;
-      out.push({midi, time, gap, cents: Math.round((mf-midi)*100)});
+      out.push({midi, time, gap: replace ? prev.gap : gap, replace, cents: Math.round((mf-midi)*100)});
+      this.lastCommit.gap = replace ? prev.gap : gap;
     }
     return out;
+  }
+}
+
+// Per-frame analysis: adapts to the input's noise level, smooths pitch, finds notes.
+class Analyzer {
+  constructor(settings){ this.settings = settings; this.tracker = new NoteTracker({gate:0, minF:70, maxF:1400, minFrames:3}); this.reset(); }
+  reset(){ this.ring = null; this.frames = 0; this.hist = []; this.nf = 0.0005; this.tracker.reset(); }
+  gate(){ return Math.max(0.00015, this.nf * (1.6 + (10 - this.settings.sens)*0.6)); }
+  frame(x, sr){
+    const hop = x.length;
+    if (!this.ring || this.ring.length !== hop*2) this.ring = new Float32Array(hop*2);
+    this.ring.copyWithin(0, hop); this.ring.set(x, hop);
+    let sum = 0; for (let i=0; i<hop; i++) sum += x[i]*x[i];
+    const rms = Math.sqrt(sum/hop);
+    // Noise floor: drops quickly to quiet moments, rises very slowly.
+    this.nf = rms < this.nf ? this.nf*0.8 + rms*0.2 : this.nf*0.9995 + rms*0.0005;
+    this.nf = Math.max(this.nf, 0.00003);
+    const gate = this.gate();
+    const o = this.tracker.opts; o.gate = gate; o.minFrames = this.settings.minFrames;
+    this.frames++;
+    let pitch = rms >= gate ? yin(this.ring, sr, o.minF, o.maxF, 0.15) : null;
+    if (pitch){
+      this.hist.push(69 + 12*Math.log2(pitch.freq/440));
+      if (this.hist.length > 3) this.hist.shift();
+      const med = [...this.hist].sort((a,b)=>a-b)[Math.floor((this.hist.length-1)/2)];
+      pitch = {freq: 440*Math.pow(2, (med-69)/12), clarity: pitch.clarity};
+    } else this.hist = [];
+    const events = this.tracker.process(rms, pitch, this.frames*hop/sr);
+    return {rms, gate, pitch, events};
   }
 }
 
@@ -260,7 +304,7 @@ function renderTab(items, tuning, width){
   return blocks.join('\n\n');
 }
 
-if (typeof module !== 'undefined') module.exports = {yin, NoteTracker, chooseFret, renderTab, TUNINGS, midiName};
+if (typeof module !== 'undefined') module.exports = {yin, NoteTracker, Analyzer, chooseFret, renderTab, TUNINGS, midiName};
 </script>
 
 <script>
@@ -272,15 +316,15 @@ if (typeof module !== 'undefined') module.exports = {yin, NoteTracker, chooseFre
   // Settings
   const tuningSel = $('tuning');
   for (const [k,v] of Object.entries(TUNINGS)){ const o = document.createElement('option'); o.value = k; o.textContent = v.label; tuningSel.appendChild(o); }
-  const gateFor = s => 0.05*Math.pow(0.6, s-1);
-  const opts = {gate: gateFor(6), minF: 70, maxF: 1400, minFrames: 3};
-  const tracker = new NoteTracker(opts);
+  const settings = {sens: 6, minFrames: 3};
+  const analyzer = new Analyzer(settings);
+  const tracker = analyzer.tracker, opts = tracker.opts;
   const fretState = {hand:null, string:null};
   function syncSettings(){
-    opts.gate = gateFor(+$('sens').value);
-    opts.minFrames = +$('steady').value;
+    settings.sens = +$('sens').value;
+    settings.minFrames = +$('steady').value;
     $('sensVal').textContent = $('sens').value + ' / 10';
-    $('steadyVal').textContent = Math.round(opts.minFrames*1024/48) + ' ms';
+    $('steadyVal').textContent = Math.round(settings.minFrames*1024/48) + ' ms';
     try { localStorage.setItem('tabListenerSettings', JSON.stringify({t:tuningSel.value, s:$('sens').value, st:$('steady').value, m:$('maxFret').value})); } catch(e){}
   }
   try {
@@ -342,8 +386,8 @@ if (typeof module !== 'undefined') module.exports = {yin, NoteTracker, chooseFre
   function setStatus(msg, kind){ ui.status.textContent = msg; ui.status.className = 'status' + (kind ? ' ' + kind : ''); }
 
   // ---------- Audio ----------
-  let ctx = null, chain = null, stream = null, mediaNode = null, frames = 0, ring = null;
-  const live = {rms:0, pitch:null, dirty:false, last:null};
+  let ctx = null, chain = null, stream = null, mediaNode = null;
+  const live = {rms:0, pitch:null, gate:0.001, dirty:false, last:null};
 
   function ensureCtx(){
     if (!ctx) ctx = new (window.AudioContext || window.webkitAudioContext)();
@@ -357,7 +401,7 @@ if (typeof module !== 'undefined') module.exports = {yin, NoteTracker, chooseFre
     const proc = ctx.createScriptProcessor(1024, 1, 1);
     const sink = ctx.createGain(); sink.gain.value = 0;
     input.connect(hp); hp.connect(lp); lp.connect(proc); proc.connect(sink); sink.connect(ctx.destination);
-    ring = new Float32Array(2048); frames = 0; tracker.reset();
+    analyzer.reset();
     proc.onaudioprocess = onAudio;
     chain = {input, hp, lp, proc, sink};
     $('btnStop').disabled = false;
@@ -370,17 +414,14 @@ if (typeof module !== 'undefined') module.exports = {yin, NoteTracker, chooseFre
     [chain.hp, chain.lp, chain.proc, chain.sink].forEach(n => { try { n.disconnect(); } catch(e){} });
     chain = null;
   }
+  let fpsCount = 0, fpsT = 0, fps = 0;
   function onAudio(e){
-    const x = e.inputBuffer.getChannelData(0), hop = x.length, sr = ctx.sampleRate;
-    if (ring.length !== hop*2) ring = new Float32Array(hop*2);
-    ring.copyWithin(0, hop); ring.set(x, hop);
-    let sum = 0; for (let i=0; i<hop; i++) sum += x[i]*x[i];
-    const rms = Math.sqrt(sum/hop);
-    frames++;
-    const time = frames*hop/sr;
-    const pitch = rms >= opts.gate ? yin(ring, sr, opts.minF, opts.maxF, 0.15) : null;
-    live.rms = rms; live.pitch = pitch; live.dirty = true;
-    for (const ev of tracker.process(rms, pitch, time)){
+    const r = analyzer.frame(e.inputBuffer.getChannelData(0), ctx.sampleRate);
+    const rms = r.rms, pitch = r.pitch;
+    live.rms = rms; live.pitch = pitch; live.gate = r.gate; live.dirty = true;
+    fpsCount++; const now = performance.now(); if (now - fpsT > 1000){ fps = fpsCount; fpsCount = 0; fpsT = now; }
+    for (const ev of r.events){
+      if (ev.replace && items.length && items[items.length-1].type === 'note') items.pop();
       const p = chooseFret(ev.midi, tuning(), fretState, maxFret());
       if (!p){ live.last = {name: midiName(ev.midi), out:true}; continue; }
       items.push({type:'note', midi:ev.midi, s:p.s, f:p.f, gap:ev.gap});
@@ -393,9 +434,11 @@ if (typeof module !== 'undefined') module.exports = {yin, NoteTracker, chooseFre
     if (!chain) return;
     if (live.dirty){
       live.dirty = false;
-      const lvl = Math.min(1, Math.sqrt(live.rms)*2.2);
-      ui.level.style.width = (lvl*100).toFixed(1) + '%';
-      $('gateLbl').textContent = live.rms >= opts.gate ? 'hearing sound' : 'too quiet';
+      const db = v => Math.max(0, Math.min(1, (20*Math.log10(Math.max(v,1e-6)) + 80)/80));
+      ui.level.style.width = (db(live.rms)*100).toFixed(1) + '%';
+      $('gateMark').style.left = (db(live.gate)*100).toFixed(1) + '%';
+      $('gateLbl').textContent = live.rms >= live.gate ? 'hearing a note' : 'listening…';
+      $('diag').textContent = 'Level ' + (20*Math.log10(Math.max(live.rms,1e-6))).toFixed(0) + ' dB · trigger ' + (20*Math.log10(live.gate)).toFixed(0) + ' dB · ' + fps + ' checks/sec';
       const p = live.pitch;
       if (p && p.freq >= opts.minF && p.freq <= opts.maxF){
         const mf = 69 + 12*Math.log2(p.freq/440), m = Math.round(mf), c = (mf-m)*100;
@@ -422,6 +465,10 @@ if (typeof module !== 'undefined') module.exports = {yin, NoteTracker, chooseFre
     setStatus('Stopped. Your tab is kept below.');
   }
   $('btnStop').onclick = stopAll;
+  // Phones can't share another tab's audio, so lead with the microphone there.
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia || /Android|iPhone|iPad/i.test(navigator.userAgent)){
+    $('btnTab').style.display = 'none'; $('btnMic').classList.add('primary');
+  }
 
   const blockedMsg = 'Your browser blocked access to sound here. If you opened this inside the Claude app, download the page and open it in Chrome or Edge on a computer. Opening an audio file still works here.';
 
