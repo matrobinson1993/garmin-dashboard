@@ -63,6 +63,7 @@ jobs:
           MFA_CODE: ${{ inputs.mfa_code }}
           START_DATE: ${{ inputs.start_date }}
           RESET: ${{ inputs.reset }}
+          DEBUG_FIELD_NAMES: "1"
           PAGES_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}
         run: python garmin_sync.py
 

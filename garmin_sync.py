@@ -410,6 +410,11 @@ def sync_activities(call, store):
         batch = call("get_activities", start, 100) or []
         if not batch:
             break
+        if start == 0 and os.getenv("DEBUG_FIELD_NAMES"):   # field NAMES only (no values) to see what Garmin provides
+            names = sorted({k for a in batch for k in a if re.search(r"fastest|split|best|record|pr", k, re.I)})
+            log("Activity fields available: " + ", ".join(names))
+            runs = [a for a in batch if "run" in str((a.get("activityType") or {}).get("typeKey", ""))]
+            log(f"Of {len(runs)} recent runs, with each field: " + ", ".join(f"{n}={sum(1 for a in runs if a.get(n) is not None)}" for n in names))
         fresh = [a for a in batch if a.get("activityId") not in known]
         for a in batch:
             row = activity_row(a)
