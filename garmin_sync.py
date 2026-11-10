@@ -357,6 +357,9 @@ def activity_row(a):
         "gct": r(a.get("avgGroundContactTime"), 0),
         "vo": r(a.get("avgVerticalOscillation"), 1),
         "z": zones if any(zones) else None,
+        # best efforts within this activity (seconds), e.g. {"5000": 1234.5}: Garmin's fastest 1K/mile/5K/10K/half/full inside the run
+        "fs": {k[len("fastestSplit_"):]: round(v, 1) for k, v in a.items()
+               if k.startswith("fastestSplit_") and isinstance(v, (int, float)) and v > 0} or None,
     }
     return {k: v for k, v in row.items() if v is not None}
 
@@ -398,7 +401,7 @@ def load_store(passphrase):
 # ---------------------------------------------------------------------------
 # Sync steps
 # ---------------------------------------------------------------------------
-ACTIVITY_FIELDS_VERSION = 2   # bump when activity_row() gains fields, to refresh all activities once
+ACTIVITY_FIELDS_VERSION = 3   # bump when activity_row() gains fields, to refresh all activities once
 
 
 def sync_activities(call, store):
@@ -410,11 +413,6 @@ def sync_activities(call, store):
         batch = call("get_activities", start, 100) or []
         if not batch:
             break
-        if start == 0 and os.getenv("DEBUG_FIELD_NAMES"):   # field NAMES only (no values) to see what Garmin provides
-            names = sorted({k for a in batch for k in a if re.search(r"fastest|split|best|record|pr", k, re.I)})
-            log("Activity fields available: " + ", ".join(names))
-            runs = [a for a in batch if "run" in str((a.get("activityType") or {}).get("typeKey", ""))]
-            log(f"Of {len(runs)} recent runs, with each field: " + ", ".join(f"{n}={sum(1 for a in runs if a.get(n) is not None)}" for n in names))
         fresh = [a for a in batch if a.get("activityId") not in known]
         for a in batch:
             row = activity_row(a)
