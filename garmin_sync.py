@@ -502,6 +502,16 @@ def sync_account(call, store):
     except Exception as e:
         log(f"Personal records unavailable ({short_err(e)}).")
     try:
+        # Heart rate zone settings (bpm floors per zone, max/resting HR, method) for each sport profile
+        hz = call("get_heart_rate_zones")
+        if hz:
+            store["hrZones"] = hz
+            first = hz[0] if isinstance(hz, list) and hz else hz
+            log(f"Heart rate zones: {len(hz) if isinstance(hz, list) else 1} profile(s); fields: "
+                + ", ".join(sorted(first.keys())[:30] if isinstance(first, dict) else [type(first).__name__]))
+    except Exception as e:
+        log(f"Heart rate zones unavailable ({short_err(e)}).")
+    try:
         devs = call("get_devices") or []
         store["devices"] = [{k: v for k, v in {
             "name": first(d.get("productDisplayName"), d.get("displayName"), d.get("deviceTypeName")),
