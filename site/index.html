@@ -51,6 +51,7 @@ svg{touch-action:pan-y}
 #lock button,.btn{width:100%;padding:12px;font:inherit;font-weight:600;border:0;border-radius:8px;background:var(--acc);color:#fff;cursor:pointer}
 #lock label{display:flex;gap:8px;align-items:center;color:var(--mut);margin-bottom:14px}#lockErr{color:var(--warn);min-height:20px;margin:8px 0 0}
 .links a{display:inline-block;margin:0 14px 8px 0}
+#zoneBody table{font-size:13px}#zoneBody td,#zoneBody th{padding:6px 4px}#zoneBody td:first-child{white-space:normal}
 #dlg{padding:16px}#dlg table{font-size:13px}#dlg td,#dlg th{padding:6px 4px}#dlg td:first-child{white-space:normal}#dlg .chip{font-size:11px;padding:1px 7px}
 @media (max-width:600px){#dlg{width:96vw;max-width:96vw;padding:14px}}
 .prgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;margin-bottom:16px}
@@ -350,10 +351,25 @@ function actRows(type){
 }
 function typeWeekly(type){ return weeklyRows(G.activities.filter(a=>!type||a.type===type)).map(w=>({d:w.d, wkKm:+w.km.toFixed(1), wkH:+(w.sec/3600).toFixed(2)})); }
 const ZONES=[['Zone 1 · Warm up','#98a2b3'],['Zone 2 · Easy','#2e90fa'],['Zone 3 · Aerobic','#12b76a'],['Zone 4 · Threshold','#f79009'],['Zone 5 · Maximum','#f04438']];
-function zonesHTML(z, note){
-  const tot=z.reduce((a,b)=>a+b,0); if(!tot) return '';
-  return `<div style="display:flex;height:14px;border-radius:7px;overflow:hidden;margin:6px 0 10px">${z.map((s,i)=>s?`<div style="width:${s/tot*100}%;background:${ZONES[i][1]}"></div>`:'').join('')}</div>
-   <table><tbody>${z.map((s,i)=>`<tr><td><span style="display:inline-block;width:10px;height:10px;border-radius:3px;background:${ZONES[i][1]};margin-right:8px"></span>${ZONES[i][0]}</td><td class="n">${durFmt(s/60)}</td><td class="n">${fmt(s/tot*100)}%</td></tr>`).join('')}</tbody></table>${note?`<p class="tline" style="margin:10px 0 0">${note}</p>`:''}`;
+// Heart rate zone settings from Garmin (one profile per sport: DEFAULT, RUNNING, CYCLING...)
+const HR_METHOD = {HR_MAX:'% of max heart rate', HR_RESERVE:'% of heart rate reserve', LACTATE_THRESHOLD:'% of lactate threshold heart rate', LTHR:'% of lactate threshold heart rate'};
+function hrZoneSet(type){
+  const all = Array.isArray(G.hrZones) ? G.hrZones.filter(p=>p && p.zone1Floor) : [];
+  if (!all.length) return null;
+  const want = /run/.test(type||'') ? 'RUNNING' : /cycl|bik|ride/.test(type||'') ? 'CYCLING' : isSwimT(type) ? 'SWIMMING' : 'DEFAULT';
+  const p = all.find(x=>String(x.sport).toUpperCase()===want) || all.find(x=>String(x.sport).toUpperCase()==='DEFAULT') || all[0];
+  const f = [1,2,3,4,5].map(i=>p['zone'+i+'Floor']), max = p.maxHeartRateUsed;
+  return { sport: String(p.sport||'DEFAULT'), method: HR_METHOD[p.trainingMethod] || p.trainingMethod || '', max, rest: p.restingHeartRateUsed, lthr: p.lactateThresholdHeartRateUsed,
+           ranges: f.map((lo,i)=> lo==null ? '' : lo + '–' + (i<4 ? (f[i+1]!=null ? f[i+1]-1 : '') : (max||''))) };
+}
+function zonesHTML(z, note, zs){
+  const tot = z ? z.reduce((a,b)=>a+(b||0),0) : 0;
+  if (!tot && !zs) return '';
+  const head = `<thead><tr><th>Zone</th>${zs?'<th class="n">bpm</th>':''}${tot?'<th class="n">Time</th><th class="n">%</th>':''}</tr></thead>`;
+  return (tot ? `<div style="display:flex;height:14px;border-radius:7px;overflow:hidden;margin:6px 0 10px">${z.map((s,i)=>s?`<div style="width:${s/tot*100}%;background:${ZONES[i][1]}"></div>`:'').join('')}</div>` : '')
+   + `<table>${head}<tbody>${ZONES.map((zn,i)=>`<tr><td><span style="display:inline-block;width:10px;height:10px;border-radius:3px;background:${zn[1]};margin-right:8px"></span>${zn[0]}</td>${zs?`<td class="n">${zs.ranges[i]}</td>`:''}${tot?`<td class="n">${durFmt((z[i]||0)/60)}</td><td class="n">${fmt((z[i]||0)/tot*100)}%</td>`:''}</tr>`).join('')}</tbody></table>`
+   + (zs ? `<p class="tline" style="margin:10px 0 0">Your Garmin ${zs.sport.toUpperCase()==='DEFAULT'?'':label(zs.sport.toLowerCase())+' '}zones${zs.method?', based on '+zs.method:''}. Max HR ${zs.max||'–'}${zs.rest?' · resting '+zs.rest:''}${zs.lthr?' · lactate threshold '+zs.lthr:''} bpm.</p>` : '')
+   + (note ? `<p class="tline" style="margin:8px 0 0">${note}</p>` : '');
 }
 function actTrendDefs(type){
   const run=isRunT(type), swim=isSwimT(type), one=!!type, cl={countLabel:'Activities'};
@@ -388,7 +404,9 @@ function actTrends(body){
     <div class="charts" id="actCharts"></div>`;
   const z=[0,0,0,0,0]; let withZ=0; acts.forEach(a=>{ if(a.z){ withZ++; a.z.forEach((s,i)=>z[i]+=s||0); } });
   const easy=z[0]+z[1], tot=z.reduce((a,b)=>a+b,0);
-  $('#zoneBody').innerHTML = tot ? zonesHTML(z, `${fmt(easy/tot*100)}% of your time was in zones 1–2. Many endurance plans aim for roughly 75–80% easy, with the rest harder. Based on ${withZ} activities with heart rate.`)
+  const zs = hrZoneSet(type);
+  $('#zoneBody').innerHTML = tot ? zonesHTML(z, `${fmt(easy/tot*100)}% of your time was in zones 1–2. Many endurance plans aim for roughly 75–80% easy, with the rest harder. Based on ${withZ} activities with heart rate.`, zs)
+    : zs ? zonesHTML(null, 'No time-in-zone data for these activities yet.', zs)
     : `<p class="mut" style="margin:0">${G.activities.some(a=>a.z)?'No heart rate zone data for these activities.':'Heart rate zones will appear after the next sync.'}</p>`;
   const c=$('#actCharts');
   actTrendDefs(type).forEach(([t,k,o])=>{
@@ -570,7 +588,7 @@ function detail(id){
     + (a.fs ? `<h3 style="font-size:15px;margin:16px 0 4px">Best efforts in this run</h3><table><tbody>${EFFORTS.filter(([k])=>a.fs[k] && plausible(k,a.fs[k])).map(([k,t,dist])=>{
         const best=bestEfforts(k,1)[0], isBest=best && best.id===a.id;
         return `<tr><td>${t.replace('Fastest ','')}</td><td class="n"><b>${clock(a.fs[k])}</b></td><td class="n">${mmss(a.fs[k]/(dist/1000))} /km</td><td class="n">${isBest?'<span class="chip good">your record</span>':best?'<span class="mut">record '+clock(best.est)+'</span>':''}</td></tr>`;}).join('')}</tbody></table>` : '')
-    + (a.z && a.z.some(s=>s) ? `<h3 style="font-size:15px;margin:16px 0 4px">Heart rate zones</h3>${zonesHTML(a.z)}` : '')
+    + (a.z && a.z.some(s=>s) ? `<h3 style="font-size:15px;margin:16px 0 4px">Heart rate zones</h3>${zonesHTML(a.z, '', hrZoneSet(a.type))}` : '')
     + ((a.tl||a.teLabel) ? `<p class="tline" style="margin:12px 0 0">${a.teLabel?'Primary benefit: <b>'+esc(label(String(a.teLabel).toLowerCase()))+'</b>. ':''}${a.tl?'Training load '+fmt(a.tl)+'.':''}</p>` : '');
   $('#dlgBody').insertAdjacentHTML('beforeend', extra);
   $('#dlg').showModal();
