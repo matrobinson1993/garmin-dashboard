@@ -489,6 +489,16 @@ def sync_account(call, store):
     except Exception:
         pass
     try:
+        # Garmin personal records (fastest 1K/mile/5K/10K/half/marathon, longest run/ride, step records...)
+        prs = call("get_personal_record") or []
+        keep = ("typeId", "prTypeLabelKey", "value", "activityId", "activityName", "activityType",
+                "prStartTimeLocalFormatted", "prStartTimeLocal", "actStartDateTimeLocalFormatted",
+                "activityStartDateTimeLocal", "prStartTimeGmtFormatted", "poolLengthUnit")
+        store["records"] = [{k: p.get(k) for k in keep if p.get(k) is not None} for p in prs if isinstance(p, dict)]
+        log(f"Personal records: {len(store['records'])}.")
+    except Exception as e:
+        log(f"Personal records unavailable ({short_err(e)}).")
+    try:
         devs = call("get_devices") or []
         store["devices"] = [{k: v for k, v in {
             "name": first(d.get("productDisplayName"), d.get("displayName"), d.get("deviceTypeName")),

@@ -53,6 +53,13 @@ svg{touch-action:pan-y}
 .links a{display:inline-block;margin:0 14px 8px 0}
 #dlg{padding:16px}#dlg table{font-size:13px}#dlg td,#dlg th{padding:6px 4px}#dlg td:first-child{white-space:normal}#dlg .chip{font-size:11px;padding:1px 7px}
 @media (max-width:600px){#dlg{width:96vw;max-width:96vw;padding:14px}}
+.prgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;margin-bottom:16px}
+@media (max-width:600px){.pr{padding:10px 12px}.pr b{font-size:21px}}
+.pr{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px;cursor:pointer}.pr:hover{border-color:var(--acc)}
+.pr .t{font-size:12px;color:var(--mut);font-weight:600;text-transform:uppercase;letter-spacing:.03em}.pr b{display:block;font-size:24px;margin:2px 0;font-variant-numeric:tabular-nums}
+.pr .s{font-size:12px;color:var(--mut);line-height:1.4}.pr .new{display:inline-block;font-size:11px;font-weight:600;color:#067647;background:#dcfae6;border-radius:99px;padding:0 7px;margin-left:4px}
+@media (prefers-color-scheme:dark){.pr .new{background:#053321;color:#75e0a7}}
+.rk{display:inline-flex;width:22px;height:22px;border-radius:50%;align-items:center;justify-content:center;font-size:12px;font-weight:700;background:var(--acc2)}.rk.g{background:#fdb022;color:#3d2600}
 .tcard{cursor:pointer;transition:border-color .15s}.tcard:hover{border-color:var(--acc)}
 .tcard h2{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;margin-bottom:4px}.tcard .more{margin-left:auto;color:var(--acc);font-size:13px;font-weight:500}
 .tline{font-size:13px;color:var(--mut);margin:0 0 10px}
@@ -390,12 +397,96 @@ function actTrends(body){
   });
   if (!c.children.length) c.innerHTML='<div class="empty">No activities yet.</div>';
 }
+// ---- personal records -------------------------------------------------------------
+// Garmin PR type ids (from Garmin Connect). kind: time = seconds over a fixed distance, dist = metres, ...
+const PR_TYPES = {
+  1:['Fastest 1 km','time',1000,'run'], 2:['Fastest mile','time',1609.344,'run'], 3:['Fastest 5K','time',5000,'run'], 4:['Fastest 10K','time',10000,'run'],
+  5:['Fastest half marathon','time',21097.5,'run'], 6:['Fastest marathon','time',42195,'run'], 7:['Longest run','dist',null,'run'],
+  8:['Longest ride','dist',null,'ride'], 9:['Most climbing in a ride','elev',null,'ride'], 10:['Best 20-min power','power',null,'ride'], 11:['Fastest 40 km ride','time',40000,'ride'],
+  12:['Most steps in a day','steps',null,'steps'], 13:['Most steps in a week','steps',null,'steps'], 14:['Most steps in a month','steps',null,'steps'],
+  15:['Longest step-goal streak','days',null,'steps'], 16:['Current step-goal streak','days',null,'steps'],
+};
+function prInfo(r){
+  const known = PR_TYPES[r.typeId];
+  if (known) return {title:known[0], kind:known[1], dist:known[2], group:known[3]};
+  // unknown (e.g. swim records): build a label from Garmin's key, e.g. "pr.label.swim.100m"
+  const key = String(r.prTypeLabelKey||'').replace(/^pr\.label\./,'').replace(/[._]/g,' ').trim();
+  const swim = /swim/i.test(key) || /swim/.test(String((r.activityType||{}).typeKey||''));
+  const m = key.match(/(\d+(?:\.\d+)?)\s*(m|km|yd|mi)\b/i);
+  const dist = m ? (+m[1]) * ({m:1,km:1000,yd:0.9144,mi:1609.344}[m[2].toLowerCase()]) : null;
+  const longest = /longest|distance/i.test(key);
+  return {title: key ? key.replace(/\b\w/g,c=>c.toUpperCase()) : 'Record #'+r.typeId, kind: longest?'dist':dist?'time':'value', dist, group: swim?'swim':'other'};
+}
+const prDate = r => { const s = r.prStartTimeLocalFormatted || r.actStartDateTimeLocalFormatted || r.prStartTimeLocal || r.activityStartDateTimeLocal || r.prStartTimeGmtFormatted;
+  if (!s) return null; const d = new Date(typeof s==='number'? s : String(s).replace(' ','T')); return isNaN(d) ? null : d; };
+function ago(d){ if(!d) return ''; const days=Math.floor((Date.now()-d)/DAY); if(days<1) return 'today'; if(days<31) return days+' day'+(days>1?'s':'')+' ago';
+  const mo=Math.floor(days/30.44); if(mo<12) return mo+' month'+(mo>1?'s':'')+' ago'; const y=Math.floor(mo/12), rm=mo%12; return y+' yr'+(y>1?'s':'')+(rm?' '+rm+' mo':'')+' ago'; }
+const clock = s => { if(s==null) return '–'; s=Math.round(s); const h=Math.floor(s/3600), m=Math.floor(s%3600/60), x=s%60; return (h?h+':'+String(m).padStart(2,'0'):m)+':'+String(x).padStart(2,'0'); };
+function prValue(r, info){
+  const v=r.value;
+  switch(info.kind){
+    case 'time': { const pace = info.dist ? (info.group==='ride' ? fmt(info.dist/1000/(v/3600),1)+' km/h' : info.group==='swim' ? mmss(v/(info.dist/100))+' /100m' : mmss(v/(info.dist/1000))+' /km') : '';
+                   return {main:clock(v), sub:pace}; }
+    case 'dist': return {main:fmt(v/1000, v>=100000?0:2)+' km', sub:''};
+    case 'elev': return {main:fmt(v)+' m', sub:''};
+    case 'power': return {main:fmt(v)+' W', sub:''};
+    case 'steps': return {main:fmt(v), sub:'steps'};
+    case 'days': return {main:fmt(v), sub:'days'};
+    default: return {main:fmt(v, v<100?2:0), sub:''};
+  }
+}
+const groupOfType = t => !t ? null : isRunT(t) ? 'run' : /cycl|bik|ride/.test(t) ? 'ride' : isSwimT(t) ? 'swim' : 'other';
+function prCard(r){
+  const info=prInfo(r), val=prValue(r,info), d=prDate(r), recent = d && (Date.now()-d) < 60*DAY;
+  return `<div class="pr" data-aid="${r.activityId||''}"><div class="t">${esc(info.title)}</div><b>${val.main}</b>
+    <div class="s">${val.sub?esc(val.sub)+'<br>':''}${d?d.toLocaleDateString(undefined,{day:'numeric',month:'short',year:'numeric'})+' · '+ago(d):''}${recent?'<span class="new">NEW</span>':''}
+    ${r.activityName?'<br>'+esc(r.activityName):''}</div></div>`;
+}
+const BEST_DISTANCES = { run:[['5K',5],['10K',10],['Half marathon',21.0975],['Marathon',42.195]], ride:[['40 km',40],['100 km',100]], swim:[['1,500 m',1.5]] };
+function topEfforts(type, km, n=5){
+  return G.activities.filter(a=>a.type===type && a.km && a.sec && a.km>=km*0.97 && a.km<=km*1.06)
+    .map(a=>({...a, est: a.sec*km/a.km})).sort((a,b)=>a.est-b.est).slice(0,n);
+}
+function actRecords(body){
+  const type=TYPE, grp=groupOfType(type), recs=(G.records||[]);
+  const mine = recs.filter(r=>{ const g=prInfo(r).group; return g!=='steps' && (!grp || g===grp || (grp==='other' && g==='other')); })
+                   .sort((a,b)=>(a.typeId||99)-(b.typeId||99));
+  const steps = recs.filter(r=>prInfo(r).group==='steps').sort((a,b)=>a.typeId-b.typeId);
+  let html = `<div class="card"><h2>Garmin personal records${type?' · '+label(type):''}</h2>`;
+  html += mine.length ? `<div class="prgrid">${mine.map(prCard).join('')}</div><p class="tline" style="margin:0">From Garmin Connect. Distance records can come from part of a longer activity. Tap a record to see the activity.</p>`
+    : `<p class="mut" style="margin:0">${recs.length ? 'No Garmin records for this activity type.' : 'Your Garmin records will appear after the next sync.'}</p>`;
+  html += `</div>`;
+  // top efforts per distance, from your activities
+  const yr = String(new Date().getFullYear());
+  const dists = grp ? (BEST_DISTANCES[grp]||[]) : [];
+  dists.forEach(([name,km])=>{
+    const top=topEfforts(type,km); if(!top.length) return;
+    const yearBest = G.activities.filter(a=>a.type===type && a.km && a.sec && a.km>=km*0.97 && a.km<=km*1.06 && (a.start||'').startsWith(yr)).map(a=>a.sec*km/a.km).sort((a,b)=>a-b)[0];
+    html += `<div class="card"><h2>Top ${top.length} · ${name} <span class="mut" style="font-weight:400">${yearBest!=null?'· best in '+yr+': '+clock(yearBest):''}</span></h2><div class="tw"><table><thead><tr><th></th><th>Date</th><th class="n">Time*</th><th class="n">Pace</th><th class="n">Avg HR</th><th>Activity</th></tr></thead><tbody>
+      ${top.map((a,i)=>`<tr data-id="${a.id}"><td><span class="rk ${i===0?'g':''}">${i+1}</span></td><td>${esc((a.start||'').slice(0,10))}</td><td class="n">${clock(a.est)}</td><td class="n">${grp==='ride'?fmt(km/(a.est/3600),1)+' km/h':grp==='swim'?mmss(a.est/(km*10))+' /100m':mmss(a.est/km)+' /km'}</td><td class="n">${fmt(a.avgHr)}</td><td>${esc(a.name||'')}</td></tr>`).join('')}
+      </tbody></table></div><p class="tline" style="margin:8px 0 0">*Whole activities of about ${name} (within a few %), time scaled to exactly ${name}.</p></div>`;
+  });
+  // longest / most climbing / longest time for this type
+  if (type) {
+    const A=G.activities.filter(a=>a.type===type);
+    const lists=[['Longest',a=>a.km,a=>fmt(a.km,2)+' km'],['Longest time',a=>a.sec,a=>hms(a.sec)],['Most climbing',a=>a.elev,a=>fmt(a.elev)+' m']];
+    lists.forEach(([t,k,f])=>{ const top=A.filter(a=>k(a)).sort((a,b)=>k(b)-k(a)).slice(0,5); if(!top.length) return;
+      html += `<div class="card"><h2>${t} · top ${top.length}</h2><div class="tw"><table><tbody>${top.map((a,i)=>`<tr data-id="${a.id}"><td><span class="rk ${i===0?'g':''}">${i+1}</span></td><td>${esc((a.start||'').slice(0,10))}</td><td class="n"><b>${f(a)}</b></td><td>${esc(a.name||'')}</td></tr>`).join('')}</tbody></table></div></div>`; });
+  }
+  if (steps.length) html += `<div class="card"><h2>Step records</h2><div class="prgrid" style="margin:0">${steps.map(prCard).join('')}</div></div>`;
+  html += expBar([['prs','Records CSV']]);
+  body.innerHTML = html;
+  body.querySelectorAll('[data-aid]').forEach(c=>c.onclick=()=>{ const id=+c.dataset.aid; if(!id) return;
+    if (G.activities.some(a=>a.id===id)) detail(id); else window.open('https://connect.garmin.com/modern/activity/'+id,'_blank'); });
+  body.querySelectorAll('tr[data-id]').forEach(tr=>tr.onclick=()=>detail(+tr.dataset.id));
+}
+
 function activities(){
   const el=$('#activities'), types=[...new Set(G.activities.map(a=>a.type))];
   const counts={}; G.activities.forEach(a=>counts[a.type]=(counts[a.type]||0)+1); types.sort((a,b)=>counts[b]-counts[a]);
   if(!el.innerHTML){
     el.innerHTML=`<div class="bar"><select id="ftype"><option value="">All activity types</option>${types.map(t=>`<option value="${esc(t)}">${label(t)} (${counts[t]})</option>`).join('')}</select>
-      <div class="seg" id="aview"><button data-v="trends">Trends</button><button data-v="list">List</button></div></div><div id="actBody"></div>`;
+      <div class="seg" id="aview"><button data-v="trends">Trends</button><button data-v="records">Records</button><button data-v="list">List</button></div></div><div id="actBody"></div>`;
     $('#ftype').onchange=e=>{TYPE=e.target.value; activities();};
     $('#aview').onclick=e=>{ if(!e.target.dataset.v) return; AVIEW=e.target.dataset.v; activities(); };
     if (!TYPE && types.length) TYPE=types[0];   // start on your most common activity
@@ -404,6 +495,7 @@ function activities(){
   document.querySelectorAll('#aview button').forEach(b=>b.classList.toggle('on',b.dataset.v===AVIEW));
   const body=$('#actBody');
   if (AVIEW==='trends') { body.dataset.v='trends'; actTrends(body); return; }
+  if (AVIEW==='records') { body.dataset.v='records'; actRecords(body); return; }
   if (body.dataset.v!=='list') {
     body.dataset.v='list';
     body.innerHTML=`<div class="bar"><input id="q" placeholder="Search name or location" style="flex:1;min-width:160px" value="${esc(Q)}"><button class="dl" id="csv">CSV</button><span class="mut" id="cnt"></span></div>
@@ -496,6 +588,8 @@ const EXPORTS = {
   allActs:    () => exportCSV('activities', G.activities, ACT_COLS, true),
   allDays:    () => exportCSV('daily_health_and_sleep', G.days.filter(d=>Object.keys(d).length>1), [...HEALTH_COLS, ...SLEEP_COLS.slice(1)], true),
   allWeights: () => exportCSV('weigh_ins', G.weights, WEIGHT_COLS, true),
+  prs:        () => exportCSV('personal_records', (G.records||[]).map(r=>{ const i=prInfo(r), v=prValue(r,i), d=prDate(r); return {...r, _t:i.title, _v:v.main, _s:v.sub, _d:d?d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'):''}; }),
+                  [['Record','_t'],['Value','_v'],['Pace / unit','_s'],['Raw value','value'],['Date set','_d'],['Activity','activityName'],['Activity ID','activityId'],['Garmin type','typeId']], true),
   json:       () => saveFile(`garmin_all_data_${today()}.json`, JSON.stringify(G, null, 1), 'application/json'),
 };
 const expBar = btns => `<div class="exp">${btns.map(([k,l])=>`<button class="dl" onclick="EXPORTS.${k}()">${l}</button>`).join('')}</div>`;
@@ -507,7 +601,7 @@ function more(){
   const el=$('#more');
   const rows=bestRows().map(r=>`<tr><td>${label(r.type)}</td><td class="n">${r.l?fmt(r.l.km,1)+' km':'–'}</td><td class="n">${r.d?hms(r.d.sec):'–'}</td><td class="n">${r.e?fmt(r.e.elev)+' m':'–'}</td><td class="n">${r.n}</td></tr>`).join('');
   el.innerHTML=`<div class="card"><h2>Download all my data</h2><p class="mut" style="margin-top:0">Everything, all time. CSV files open in Excel, Google Sheets or Numbers.</p>
-   ${expBar([['allActs','All activities CSV'],['allDays','All daily health & sleep CSV'],['allWeights','All weigh-ins CSV'],['records','Longest efforts CSV'],['json','Everything (JSON)']])}</div>
+   ${expBar([['allActs','All activities CSV'],['allDays','All daily health & sleep CSV'],['allWeights','All weigh-ins CSV'],['prs','Personal records CSV'],['records','Longest efforts CSV'],['json','Everything (JSON)']])}</div>
   <div class="card"><h2>Longest efforts (all time)</h2><div class="tw"><table><thead><tr><th>Type</th><th class="n">Longest distance</th><th class="n">Longest time</th><th class="n">Most climbing</th><th class="n">Total count</th></tr></thead><tbody>${rows||'<tr><td colspan=5 class="mut">No activities</td></tr>'}</tbody></table></div></div>
   <div class="card"><h2>Devices</h2>${G.devices.length?'<table><thead><tr><th>Device</th><th>Firmware</th></tr></thead><tbody>'+G.devices.map(d=>`<tr><td>${esc(d.name)}</td><td>${esc(d.fw||'')}</td></tr>`).join('')+'</tbody></table>':'<p class="mut">None saved.</p>'}</div>
   <div class="card"><h2>Sync</h2><p class="mut">Last synced ${G.generated?new Date(G.generated).toLocaleString():'–'}. ${G.activities.length} activities, ${G.days.length} days, ${G.weights.length} weigh-ins.${G.meta&&G.meta.complete===false?' Older history is still downloading.':''}</p>
