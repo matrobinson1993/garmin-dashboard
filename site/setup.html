@@ -129,13 +129,23 @@ let TOKEN = '', LOGIN = '', REPO = null; // REPO = {owner, name, branch}
 
 // ---------------------------------------------------------------- GitHub API
 async function gh(method, path, body, okStatuses = [200, 201, 202, 204]) {
-  const r = await fetch(API + path, {
-    method, headers: { 'Authorization': 'Bearer ' + TOKEN, 'Accept': 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28',
-                       ...(body ? {'Content-Type': 'application/json'} : {}) },
-    body: body ? JSON.stringify(body) : undefined });
+  let r;
+  for (let attempt = 0; ; attempt++) {
+    try { r = await fetchOnce(method, path, body); break; }
+    catch (e) {   // network blip (e.g. "Failed to fetch" on a phone switching networks): wait and retry
+      if (attempt >= 3) { const err = new Error('Couldn\u2019t reach GitHub. Check your internet connection, then tap Try again. Nothing is lost.'); err.network = true; throw err; }
+      await sleep(2000 * (attempt + 1));
+    }
+  }
   let data = null; try { data = r.status === 204 ? null : await r.json(); } catch (e) {}
   if (!okStatuses.includes(r.status)) { const e = new Error((data && data.message) || ('GitHub error ' + r.status)); e.status = r.status; e.data = data; throw e; }
   return { status: r.status, data, headers: r.headers };
+}
+function fetchOnce(method, path, body) {
+  return fetch(API + path, {
+    method, headers: { 'Authorization': 'Bearer ' + TOKEN, 'Accept': 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28',
+                       ...(body ? {'Content-Type': 'application/json'} : {}) },
+    body: body ? JSON.stringify(body) : undefined, cache: 'no-store' });
 }
 
 // ---------------------------------------------------------------- libsodium sealed box (crypto_box_seal) for GitHub secrets
@@ -265,20 +275,25 @@ async function createDashboard() {
     // clear sensitive fields from the page
     $('#gPass').value = '';
     // 4+. run the sync
+    cur = 3;
     await runSync({ start_date: $('#startDate').value || '' }, true);
   } catch (e) {
-    step(cur, 'fail'); msg('#progMsg', esc(e.message).replace(/&lt;(\/?b)&gt;/g, '<$1>')); $('#go').disabled = false; validate();
+    step(cur, 'fail'); msg('#progMsg', esc(e.message).replace(/&lt;(\/?b)&gt;/g, '<$1>') + (cur >= 3 && REPO ? ' <a href="#" id="retry">Try again</a>' : ''));
+    if ($('#retry')) $('#retry').onclick = ev => { ev.preventDefault(); msg('#progMsg', ''); checkStatus(); };
+    $('#go').disabled = false; validate();
   }
 }
 
+async function listRuns(n = 10) {
+  try { return (await gh('GET', `/repos/${REPO.owner}/${REPO.name}/actions/workflows/sync.yml/runs?per_page=${n}`)).data.workflow_runs || []; }
+  catch (e) { if (e.status === 404) return []; throw e; }
+}
 async function dispatch(inputs = {}) {
-  const since = Date.now() - 10000;
+  // Remember which runs already exist, then look for a NEW one. (Comparing times fails when the phone's clock is off.)
+  const before = new Set((await listRuns(20)).map(r => r.id));
   const clean = Object.fromEntries(Object.entries(inputs).filter(([, v]) => v));
   await waitFor(async () => { await gh('POST', `/repos/${REPO.owner}/${REPO.name}/actions/workflows/sync.yml/dispatches`, { ref: REPO.branch, inputs: clean }); return true; }, 10, 3000);
-  return waitFor(async () => {
-    const runs = (await gh('GET', `/repos/${REPO.owner}/${REPO.name}/actions/workflows/sync.yml/runs?per_page=5&event=workflow_dispatch`)).data.workflow_runs || [];
-    return runs.find(r => Date.parse(r.created_at) >= since);
-  }, 40, 3000);
+  return waitFor(async () => (await listRuns(10)).find(r => !before.has(r.id) && r.event === 'workflow_dispatch'), 40, 3000);
 }
 
 async function runSync(inputs, fresh) {
@@ -304,7 +319,11 @@ async function watchRun(run) {
     if (r.status !== 'completed') {
       if (sync.status === 'in_progress') { step(3, 'done', ''); step(4, 'run', mins >= 1 ? ` — ${mins} min (the first one can take up to an hour)` : ' — this can take a while'); }
       else if (sync.status === 'completed') { step(3, 'done', ''); step(4, 'done', ''); step(5, 'run', ''); }
-      else step(3, 'run', r.status === 'queued' ? ' — waiting for GitHub…' : ' — starting…');
+      else if (r.status === 'queued') {
+        const busy = (await listRuns(10)).some(x => x.id !== r.id && x.status === 'in_progress');
+        step(3, 'run', busy ? ' \u2014 waiting for your earlier sync to finish (the first download can take up to an hour)' : ' \u2014 waiting for GitHub\u2026');
+      }
+      else step(3, 'run', ' \u2014 starting\u2026');
       await sleep(Date.now() - started > 120000 ? 15000 : 5000);
       continue;
     }
@@ -332,7 +351,11 @@ async function watchRun(run) {
     return;
   }
 }
-function showErr(e) { msg('#progMsg', esc(e.message)); }
+function showErr(e) {
+  const running = [...document.querySelectorAll('#steps li.run')].pop(); if (running) running.className = 'fail';
+  msg('#progMsg', esc(e.message) + (REPO ? ' <a href="#" id="retry">Try again</a>' : ''));
+  if ($('#retry')) $('#retry').onclick = ev => { ev.preventDefault(); msg('#progMsg', ''); checkStatus(); };
+}
 
 async function submitCode() {
   const code = $('#mfa').value.replace(/\D/g, '');
