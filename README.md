@@ -61,6 +61,7 @@ You'll need a free GitHub account ([sign up](https://github.com/signup)).
 ## Good to know
 
 - **Syncing:** it syncs every morning. To sync now, open your repository on GitHub, then **Actions → Sync Garmin data → Run workflow**. The **More** tab links there.
+- **Updates are automatic:** each daily sync uses the latest version of the dashboard, so new features and fixes reach you within a day. To turn this off, add a variable called `AUTO_UPDATE` with the value `false` in your repository (**Settings → Secrets and variables → Actions → Variables**). Your data and settings are never touched by updates.
 - **Privacy:** only GitHub sees your Garmin login, and it's stored as a secret in **your** account. The web page is public but your data is encrypted, and it can only be opened with your passphrase. Whoever shared this with you never sees your login or data.
 - **Forgot your passphrase?** Set a new `DATA_PASSPHRASE` secret in your repository (**Settings → Secrets and variables → Actions**), then run the sync with **Start over** ticked.
 - **Something not working?** Open **Actions** in your repository and tap the latest run. The message at the top says what went wrong.

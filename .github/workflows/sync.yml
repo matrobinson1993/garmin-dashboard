@@ -44,6 +44,21 @@ jobs:
           python-version: "3.12"
           cache: pip
 
+      # Auto-update: use the latest dashboard and sync script from the original repository.
+      # Turn off with a repository variable AUTO_UPDATE = false (Settings > Secrets and variables > Actions > Variables).
+      - name: Get latest version
+        if: github.repository != 'matrobinson1993/garmin-dashboard' && vars.AUTO_UPDATE != 'false'
+        run: |
+          if git clone -q --depth 1 https://github.com/matrobinson1993/garmin-dashboard /tmp/upstream \
+             && python -m py_compile /tmp/upstream/garmin_sync.py \
+             && test -f /tmp/upstream/site/index.html; then
+            cp /tmp/upstream/garmin_sync.py /tmp/upstream/requirements.txt .
+            rm -rf site && cp -r /tmp/upstream/site site
+            echo "Using the latest Garmin Dashboard ($(git -C /tmp/upstream rev-parse --short HEAD))."
+          else
+            echo "::warning title=Auto-update skipped::Couldn't get the latest version, so this repository's own copy was used."
+          fi
+
       - name: Install
         run: pip install -r requirements.txt
 

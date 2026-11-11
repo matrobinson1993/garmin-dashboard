@@ -207,6 +207,19 @@ async function waitFor(fn, tries = 30, ms = 2000) {
   for (let i = 0; i < tries; i++) { try { const r = await fn(); if (r) return r; } catch (e) { if (e.status && ![404, 409, 422].includes(e.status)) throw e; } await sleep(ms); }
   throw new Error('GitHub is taking longer than expected. Wait a minute and tap Create again — it carries on where it stopped.');
 }
+// Bring an existing copy's sync workflow up to date with the template (adds auto-update to older copies).
+const fromB64 = s => decodeURIComponent(escape(atob(String(s).replace(/\n/g, ''))));
+const toB64 = s => btoa(unescape(encodeURIComponent(s)));
+async function updateWorkflow(owner, name) {
+  const path = '.github/workflows/sync.yml';
+  try {
+    const latest = fromB64((await gh('GET', `/repos/${TEMPLATE}/contents/${path}`)).data.content);
+    const mine = (await gh('GET', `/repos/${owner}/${name}/contents/${path}`)).data;
+    if (fromB64(mine.content) === latest) return false;
+    await gh('PUT', `/repos/${owner}/${name}/contents/${path}`, { message: 'Update Garmin Dashboard sync (adds auto-update)', content: toB64(latest), sha: mine.sha });
+    return true;
+  } catch (e) { return false; }   // not essential: the dashboard still works without it
+}
 async function setSecret(name, value, key) {
   const enc = sealedBox(new TextEncoder().encode(value), b64d(key.key));
   await gh('PUT', `/repos/${REPO.owner}/${REPO.name}/actions/secrets/${name}`, { encrypted_value: b64e(enc), key_id: key.key_id });
@@ -225,6 +238,7 @@ async function createDashboard() {
     if (repo) {
       try { await gh('GET', `/repos/${LOGIN}/${name}/contents/.github/workflows/sync.yml`); }
       catch (e) { throw new Error(`You already have a repository called "${esc(name)}" that isn't a Garmin Dashboard. Choose another name under Options.`); }
+      if (TEMPLATE) await updateWorkflow(LOGIN, name);
     } else {
       const t = (await gh('GET', `/repos/${TEMPLATE}`)).data;
       if (!t.is_template) throw new Error(`The dashboard you were sent (${esc(TEMPLATE)}) isn't shared as a template yet. Ask the person who sent it to tick <b>Settings → Template repository</b>.`);
@@ -336,6 +350,7 @@ function showReturning() {
   $('#retOpen').href = dashUrl();
 }
 async function checkStatus() {
+  if (TOKEN && REPO) updateWorkflow(REPO.owner, REPO.name);
   if (!TOKEN) { $('#s1').scrollIntoView({behavior: 'smooth'}); msg('#s1msg', 'Paste a GitHub access key above first (an earlier one works if it hasn\'t expired), then tap this again.', 'warn'); return; }
   $('#prog').classList.remove('hide'); $('#doneBox').classList.add('hide'); msg('#progMsg', ''); initSteps(3);
   try {
