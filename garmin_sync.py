@@ -391,8 +391,13 @@ def load_store(passphrase):
     try:
         store = json.loads(load_enc(path, passphrase))
     except Exception:
-        raise SystemExit("Existing data could not be decrypted with DATA_PASSPHRASE. If you changed the "
-                         "passphrase on purpose, run the workflow once with 'Start over' ticked.")
+        # Saved with a different passphrase (changed, or set up twice with different ones). Everything can be
+        # downloaded from Garmin again, so rebuild instead of failing every day.
+        msg = ("Your saved data was locked with a different passphrase, so the dashboard is being rebuilt from Garmin "
+               "with your current DATA_PASSPHRASE. Older history fills in over the next few runs.")
+        gh(f"::warning title=Rebuilding your dashboard::{msg}")
+        log(msg)
+        return empty_store()
     for k, v in empty_store().items():
         store.setdefault(k, v)
     return store
