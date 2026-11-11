@@ -25,17 +25,18 @@ permissions:
   id-token: write
   actions: write      # lets a run start the next one while history is still downloading
 
-concurrency:
-  group: garmin-sync
-  cancel-in-progress: false
-
 jobs:
+  # 1. Log in to Garmin and download new data. Doesn't depend on GitHub Pages, so a
+  #    stuck Pages deployment can never block the Garmin login or the data sync.
   sync:
     runs-on: ubuntu-latest
     timeout-minutes: 90
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+    concurrency:
+      group: garmin-sync
+      cancel-in-progress: false
+    outputs:
+      deploy: ${{ steps.sync.outputs.deploy }}
+      more: ${{ steps.sync.outputs.more }}
     steps:
       - uses: actions/checkout@v6
 
@@ -88,23 +89,34 @@ jobs:
           path: state
           key: garmin-state-${{ github.run_id }}
 
-      - name: Configure Pages
-        if: steps.sync.outputs.deploy == 'true'
-        uses: actions/configure-pages@v6
-
       - name: Upload page
         if: steps.sync.outputs.deploy == 'true'
         uses: actions/upload-pages-artifact@v5
         with:
           path: site_out
 
-      - name: Publish page
-        id: deployment
-        if: steps.sync.outputs.deploy == 'true'
-        uses: actions/deploy-pages@v5
-
       - name: Keep downloading history
         if: steps.sync.outputs.more == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh workflow run sync.yml --ref "${{ github.ref_name }}"
+
+  # 2. Publish the (encrypted) page. Only the newest pending publish matters.
+  publish:
+    needs: sync
+    if: needs.sync.outputs.deploy == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    concurrency:
+      group: garmin-pages
+      cancel-in-progress: true
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Configure Pages
+        uses: actions/configure-pages@v6
+
+      - name: Publish page
+        id: deployment
+        uses: actions/deploy-pages@v5

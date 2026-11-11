@@ -288,9 +288,19 @@ async function listRuns(n = 10) {
   try { return (await gh('GET', `/repos/${REPO.owner}/${REPO.name}/actions/workflows/sync.yml/runs?per_page=${n}`)).data.workflow_runs || []; }
   catch (e) { if (e.status === 404) return []; throw e; }
 }
+async function cancelStuck(runs) {
+  // A sync stuck for 15+ minutes before it even started (GitHub hiccup) blocks every later one: cancel it.
+  for (const r of runs) {
+    if ((r.status === 'waiting' || r.status === 'queued' || r.status === 'pending') && Date.now() - Date.parse(r.created_at) > 15 * 60000) {
+      try { await gh('POST', `/repos/${REPO.owner}/${REPO.name}/actions/runs/${r.id}/cancel`, null, [202, 409]); } catch (e) {}
+    }
+  }
+}
 async function dispatch(inputs = {}) {
   // Remember which runs already exist, then look for a NEW one. (Comparing times fails when the phone's clock is off.)
-  const before = new Set((await listRuns(20)).map(r => r.id));
+  const existing = await listRuns(20);
+  await cancelStuck(existing);
+  const before = new Set(existing.map(r => r.id));
   const clean = Object.fromEntries(Object.entries(inputs).filter(([, v]) => v));
   await waitFor(async () => { await gh('POST', `/repos/${REPO.owner}/${REPO.name}/actions/workflows/sync.yml/dispatches`, { ref: REPO.branch, inputs: clean }); return true; }, 10, 3000);
   return waitFor(async () => (await listRuns(10)).find(r => !before.has(r.id) && r.event === 'workflow_dispatch'), 40, 3000);
@@ -306,17 +316,19 @@ async function runSync(inputs, fresh) {
 async function annotations(job) {
   try { return (await gh('GET', `/repos/${REPO.owner}/${REPO.name}/check-runs/${job.id}/annotations`)).data || []; } catch (e) { return []; }
 }
+async function allAnnotations(jobs) { return (await Promise.all(jobs.map(annotations))).flat(); }
 
 async function watchRun(run) {
   const started = Date.now();
   while (true) {
     const r = (await gh('GET', `/repos/${REPO.owner}/${REPO.name}/actions/runs/${run.id}`)).data;
     const jobs = (await gh('GET', `/repos/${REPO.owner}/${REPO.name}/actions/runs/${run.id}/jobs`)).data.jobs || [];
-    const job = jobs[0], steps = (job && job.steps) || [];
+    const job = jobs.find(j => /sync/i.test(j.name || '')) || jobs[0], steps = jobs.flatMap(j => j.steps || []);
     const st = n => steps.find(s => s.name === n) || {};
     const sync = st('Sync from Garmin'), pub = st('Publish page');
     const mins = Math.floor((Date.now() - Date.parse(r.run_started_at || r.created_at)) / 60000);
     if (r.status !== 'completed') {
+      if (r.status === 'waiting' && sync.conclusion === 'success') { step(3, 'done', ''); step(4, 'done', ''); step(5, 'run', ' \u2014 waiting for GitHub Pages\u2026'); await sleep(8000); continue; }
       if (sync.status === 'in_progress') { step(3, 'done', ''); step(4, 'run', mins >= 1 ? ` — ${mins} min (the first one can take up to an hour)` : ' — this can take a while'); }
       else if (sync.status === 'completed') { step(3, 'done', ''); step(4, 'done', ''); step(5, 'run', ''); }
       else if (r.status === 'queued') {
@@ -327,7 +339,7 @@ async function watchRun(run) {
       await sleep(Date.now() - started > 120000 ? 15000 : 5000);
       continue;
     }
-    const notes = job ? await annotations(job) : [];
+    const notes = await allAnnotations(jobs);
     const needsCode = notes.some(a => /verification code/i.test(a.title || '') || /verification code/i.test(a.message || ''));
     if (needsCode) {
       step(3, 'run', ' — waiting for your code'); step(4, '', ''); step(5, '', '');
